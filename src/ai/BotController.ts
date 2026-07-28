@@ -134,8 +134,9 @@ export function applyBotMovement(
     const flight = state.flights[fa.flightId];
     if (!flight) continue;
 
-    // Initialize movement
-    let updated = initializeMovement(flight, fa.movement.throttle, fa.movement.speed);
+    // Initialize movement (ensure minimum speed of 3 for unknown aircraft)
+    const speed = Math.max(3, fa.movement.speed);
+    let updated = initializeMovement(flight, fa.movement.throttle, speed);
 
     // Determine target hex from the action
     let targetHex = updated.hex;
