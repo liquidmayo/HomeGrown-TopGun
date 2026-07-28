@@ -181,7 +181,7 @@ const ACTION_RULES: ActionRule[] = [
     id: 'advance_strike',
     priority: 6.5,
     condition: (f) => {
-      return (f.task === 'bombing' || f.task === 'sead' || f.task === 'recon') &&
+      return (f.task === 'bombing' || f.task === 'sead' || f.task === 'recon' || f.task === 'transport' || f.task === 'closeEscort' || f.task === 'escortJamming') &&
         (!f.flightPath || f.flightPath.length === 0);
     },
     action: (f, gs) => {
