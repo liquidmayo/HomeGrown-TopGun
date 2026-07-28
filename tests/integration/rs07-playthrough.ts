@@ -1,6 +1,6 @@
 /**
- * RS08: Scenario 08 — Full NATO playthrough.
- * RS08 playthrough.
+ * RS07: Scenario 07 — Full NATO playthrough.
+ * RS07 playthrough.
  */
 
 import { loadScenario } from '../../src/engine/scenarioLoader';
@@ -58,9 +58,9 @@ function fs(f: FlightState): string {
   return s;
 }
 
-function playRS08() {
-  section('RS08: SCENARIO 08 — FULL PLAYTHROUGH');
-  let state = loadScenario('rs08');
+function playRS07() {
+  section('RS07: SCENARIO 07 — FULL PLAYTHROUGH');
+  let state = loadScenario('rs07');
 
   log(`\n${state.scenarioName} | NATO vs WP(AI) | ${state.maxTurns} turns`);
   log(`Detection: NATO ${state.natoDetectionLevel} / WP ${state.wpDetectionLevel}\n`);
@@ -275,4 +275,4 @@ function playRS08() {
   log(`Combats: ${combats}`);
 }
 
-playRS08();
+playRS07();
