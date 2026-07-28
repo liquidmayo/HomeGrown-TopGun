@@ -1,0 +1,8 @@
+node_modules/
+dist/
+release/
+*.pdf
+*.png
+*MapRS1
+.vite/
+.env
