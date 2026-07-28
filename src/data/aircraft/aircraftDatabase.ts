@@ -553,6 +553,12 @@ register({
   notes: ['A'],
 });
 
+// ── Register Additional Aircraft from ADC Charts ─────────────────
+import { ADDITIONAL_AIRCRAFT } from './additionalAircraft';
+for (const ac of ADDITIONAL_AIRCRAFT) {
+  if (!AIRCRAFT_DB[ac.id]) register(ac);
+}
+
 // ── Lookup Functions ─────────────────────────────────────────────
 
 export function getAircraftData(id: string): AircraftData | undefined {
