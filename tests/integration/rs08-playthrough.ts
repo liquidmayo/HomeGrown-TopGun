@@ -12,6 +12,7 @@ import { rollRandomEvent } from '../../src/engine/rules/randomEvents';
 import { runSAMAcquisitionPhase, applyAcquisitionResults } from '../../src/engine/rules/sam';
 import { executeBotMovementPhase, applyBotMovement, executeBotSAMAttacks } from '../../src/ai/BotController';
 import { resolveStandardCombat, checkStandardEngagementPrereqs, allocateDamage } from '../../src/engine/rules/combat';
+import { applyCombatResults } from '../../src/engine/rules/applyCombat';
 import { resolveAirToGroundAttack, resolveGroundDamage, applyGroundDamage } from '../../src/engine/rules/bombing';
 import { calculateVP, determineVictoryLevel } from '../../src/engine/rules/victory';
 import { shouldMarkFuel } from '../../src/engine/rules/fuel';
@@ -174,11 +175,17 @@ function playRS8() {
                     log(`    ${nf.id}: ${combat.attackerManeuver?.shotOpportunities} shots | ${wf.id}: ${combat.defenderManeuver?.shotOpportunities} shots`);
                     for (const s of combat.attackerShots) log(`    ${nf.id} → ${s.weaponId}: ${s.finalRoll} = ${s.hit ? s.damageType!.toUpperCase() : 'MISS'}`);
                     for (const s of combat.defenderShots) log(`    ${wf.id} → ${s.weaponId}: ${s.finalRoll} = ${s.hit ? s.damageType!.toUpperCase() : 'MISS'}`);
-                    // Apply damage
-                    for (const d of combat.damageAllocations) {
-                      log(`    DMG: AC#${d.aircraftIndex} ${d.previousDamage}→${d.resultingDamage.toUpperCase()}`);
-                    }
                     log(`    Morale: ${nf.id}=${combat.attackerMorale?.result} ${wf.id}=${combat.defenderMorale?.result}`);
+
+                    // PERSIST damage, morale, scatter, depletion to game state
+                    state = applyCombatResults(state, nf.id, wf.id, combat);
+
+                    // Log persisted damage state
+                    const atkAfter = state.flights[nf.id];
+                    const defAfter = state.flights[wf.id];
+                    const atkAlive = atkAfter.aircraft.filter(a => a.damage !== 'shotdown').length;
+                    const defAlive = defAfter.aircraft.filter(a => a.damage !== 'shotdown').length;
+                    log(`    After: ${nf.id} ${atkAlive}/${atkAfter.aircraft.length}ac${atkAfter.disordered?' DIS':''}${atkAfter.aborted?' ABT':''} | ${wf.id} ${defAlive}/${defAfter.aircraft.length}ac${defAfter.disordered?' DIS':''}${defAfter.aborted?' ABT':''}`);
                   }
                 }
               }
