@@ -13,6 +13,8 @@ import { getAircraftData, getSpeed } from '../data/aircraft/aircraftDatabase';
 import { canSAMFire, resolveSAMAttack } from '../engine/rules/sam';
 import { allocateDamage, resolveStandardCombat, checkStandardEngagementPrereqs } from '../engine/rules/combat';
 import { applyCombatResults } from '../engine/rules/applyCombat';
+import { isInBarrageZone, resolveAAABarrage, resolveFireCanAttack, resolveMobileAAAAttack } from '../engine/rules/aaa';
+import { canAttackGroundTargets, canAttackTarget, getAvailableProfiles, getTotalBombPoints, resolveAirToGroundAttack, resolveGroundDamage, applyGroundDamage } from '../engine/rules/bombing';
 import {
   determineBotAction, resolveBotMovement, buildBotContext, BotAction,
 } from './tables/flightActionsTable';
@@ -156,8 +158,11 @@ export function applyBotMovement(
       targetHex = getNeighbor(updated.hex, pDir);
     }
 
-    // Move toward target hex step by step
-    for (let mp = 0; mp < updated.speed; mp++) {
+    // Move toward target hex step by step, with AAA and combat checks
+    const enemySide: Side = flight.side === 'nato' ? 'wp' : 'nato';
+    let flightDestroyed = false;
+
+    for (let mp = 0; mp < speed; mp++) {
       let bestDir: 0|1|2|3|4|5 = 0;
       let bestDist = Infinity;
       for (let d = 0; d < 6; d++) {
@@ -171,17 +176,80 @@ export function applyBotMovement(
       const nextHex = getNeighbor(updated.hex, bestDir);
       const dirToHeading: Record<number,number> = {0:0,1:300,2:240,3:180,4:120,5:60};
       updated = { ...updated, hex: nextHex, heading: dirToHeading[bestDir] ?? 0, mpRemaining: updated.mpRemaining - 1 };
+
+      // AAA fire at new hex
+      const aaaUnits = isInBarrageZone(nextHex, state);
+      for (const aaa of aaaUnits) {
+        if (aaa.side === flight.side) continue;
+        const result = resolveAAABarrage(aaa, updated, state);
+        if (result.hit && result.damageResult && result.damageResult !== 'none') {
+          const dmg = allocateDamage(updated, result.damageResult);
+          updated = { ...updated, aircraft: updated.aircraft.map(a => a.index === dmg.aircraftIndex ? { ...a, damage: dmg.resultingDamage } : a) };
+          if (updated.aircraft.every(a => a.damage === 'shotdown')) { flightDestroyed = true; break; }
+        }
+      }
+      if (flightDestroyed) break;
+
+      // Combat check: if CAP flight adjacent to detected enemy, engage
+      if ((updated.task === 'cap' || updated.task === 'closeEscort') && !updated.disordered &&
+          updated.aircraft.some(a => a.damage !== 'shotdown' && a.airToAirWeapons.some(w => !w.depleted))) {
+        for (const enemy of Object.values(state.flights)) {
+          if (enemy.side !== enemySide || !enemy.detected || enemy.isOnGround) continue;
+          if (enemy.aircraft.every(a => a.damage === 'shotdown')) continue;
+          if (hexDistance(updated.hex, enemy.hex) > 1) continue;
+
+          const check = checkStandardEngagementPrereqs(updated, enemy, state);
+          if (check.canEngage) {
+            const combat = resolveStandardCombat(updated, enemy, state.timeOfDay === 'day');
+            if (combat.engagement.combatOccurs) {
+              // Apply combat and consume remaining MP
+              state = applyCombatResults({ ...state, flights: { ...state.flights, [fa.flightId]: updated } }, fa.flightId, enemy.id, combat);
+              updated = state.flights[fa.flightId];
+            }
+            updated = { ...updated, mpRemaining: 0 };
+            break;
+          }
+        }
+        if (updated.mpRemaining <= 0) break;
+      }
     }
 
     // Mark as moved
-    updated = {
-      ...updated,
-      hasMovedThisPhase: true,
-      hasMoved: true,
-      mpRemaining: 0,
-    };
-
+    updated = { ...updated, hasMovedThisPhase: true, hasMoved: true, mpRemaining: 0 };
     state.flights[fa.flightId] = updated;
+
+    // Bot bombing: if bombing flight near a target, execute attack
+    if (!flightDestroyed && canAttackGroundTargets(updated)) {
+      const bombPts = getTotalBombPoints(updated);
+      if (bombPts > 0) {
+        for (const [uid, unit] of Object.entries(state.groundUnits)) {
+          if (unit.side === flight.side || unit.damage === 'destroyed') continue;
+          if (hexDistance(updated.hex, unit.hex) > 1) continue;
+          if (!canAttackTarget(updated, unit.type, true, 0)) continue;
+
+          const profiles = getAvailableProfiles(updated, unit.hex, state);
+          if (profiles.length === 0) continue;
+          const profile = profiles[0]; // Pick first available
+
+          const tgtProfile = unit.type === 'armor' || unit.type === 'mech' ? 'B' as const
+            : unit.type === 'artillery' || unit.type === 'aaaConcentation' || unit.type === 'radarAAA' || unit.type === 'mobileAAA' ? 'C' as const
+            : 'D' as const;
+
+          const atkResult = resolveAirToGroundAttack(updated, unit, profile, bombPts, tgtProfile, 0, 0);
+          if (atkResult.attackSuccess > 0) {
+            const dmgResult = resolveGroundDamage(uid, atkResult.attackSuccess);
+            if (dmgResult.result !== 'noEffect') {
+              state.groundUnits[uid] = applyGroundDamage(unit, dmgResult.result);
+            }
+          }
+
+          // Expend ordnance
+          updated = { ...updated, aircraft: updated.aircraft.map(a => ({ ...a, bombStrengthRemaining: 0 })) };
+          state.flights[fa.flightId] = updated;
+          break; // One attack per flight
+        }
+      }
+    }
   }
 
   return state;

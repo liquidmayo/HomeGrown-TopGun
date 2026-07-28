@@ -25,8 +25,17 @@ const ALT_SHORT: Record<string, string> = { deck: 'DK', low: 'LO', medium: 'MD',
 
 // ── Component ────────────────────────────────────────────────────
 
+// ── Map background image bounds ──────────────────────────────────
+// The board game map image maps to the hex grid world space.
+const MAP_WORLD_X = 0;      // Left edge in world pixels
+const MAP_WORLD_Y = 0;
+const MAP_WORLD_W = 3374;   // hexToPixel(79,0).x + HEX_SIZE
+const MAP_WORLD_H = 2498;   // hexToPixel(0,50).y + HEX_HEIGHT/2
+
 const HexMapView: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const mapImageRef = useRef<HTMLImageElement | null>(null);
+  const mapImageLoadedRef = useRef(false);
   const { selectHex } = useUIStore();
   const { gameState, gameActive } = useGameStore();
   const { validMoveHexes } = useMovementStore();
@@ -34,6 +43,23 @@ const HexMapView: React.FC = () => {
   const camRef = useRef({ x: 0, y: 0, zoom: 2.0 });
   const dragRef = useRef({ dragging: false, sx: 0, sy: 0, lx: 0, ly: 0 });
   const selectedHexRef = useRef<HexCoord | null>(null);
+
+  // Load the board game map image
+  useEffect(() => {
+    const img = new Image();
+    img.onload = () => {
+      mapImageRef.current = img;
+      mapImageLoadedRef.current = true;
+    };
+    // Try loading from the project directory
+    img.src = '../../../Red Storm [GMT Games]Map.png';
+    // Fallback: try absolute path for Electron
+    img.onerror = () => {
+      const img2 = new Image();
+      img2.onload = () => { mapImageRef.current = img2; mapImageLoadedRef.current = true; };
+      img2.src = 'file://' + (window as any).__dirname + '/../../../Red Storm [GMT Games]Map.png';
+    };
+  }, []);
 
   // Convert screen coords to world coords
   const screenToWorld = useCallback((sx: number, sy: number) => {
@@ -60,10 +86,15 @@ const HexMapView: React.FC = () => {
     ctx.translate(cam.x, cam.y);
     ctx.scale(cam.zoom, cam.zoom);
 
+    // ── Draw board game map background ──
+    if (mapImageLoadedRef.current && mapImageRef.current) {
+      ctx.drawImage(mapImageRef.current, MAP_WORLD_X, MAP_WORLD_Y, MAP_WORLD_W, MAP_WORLD_H);
+    }
+
     const hexKeys = Object.keys(gameState.hexes);
     const hexData = gameState.hexes;
 
-    // ── Draw hex terrain ──
+    // ── Draw hex terrain (semi-transparent overlay when map image loaded) ──
     for (const hk of hexKeys) {
       const col = parseInt(hk.substring(0, 2), 10);
       const row = parseInt(hk.substring(2, 4), 10);
@@ -82,7 +113,7 @@ const HexMapView: React.FC = () => {
       for (let i = 2; i < corners.length; i += 2) ctx.lineTo(corners[i], corners[i + 1]);
       ctx.closePath();
       ctx.fillStyle = fillColor;
-      ctx.globalAlpha = 0.7;
+      ctx.globalAlpha = mapImageLoadedRef.current ? 0.15 : 0.7;
       ctx.fill();
 
       // East Germany tint

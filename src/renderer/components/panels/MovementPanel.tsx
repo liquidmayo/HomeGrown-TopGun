@@ -12,8 +12,11 @@ import { useUIStore } from '../../store/uiStore';
 import { rollInitiative, executeChitDraw, getMovableFlights, getNextChitDrawSide, countUnmovedFlights } from '@engine/rules/initiative';
 import { getSpeedRange, getValidActions, initializeMovement, isFlightLaden } from '@engine/rules/movement';
 import { getAircraftData, getSpeed } from '@data/aircraft/aircraftDatabase';
-import { getNeighbor, hexToPixel } from '@engine/hex';
-import { FlightState, Throttle, hexToId } from '@engine/state/GameState';
+import { getNeighbor, hexToPixel, hexDistance } from '@engine/hex';
+import { FlightState, Throttle, hexToId, Side } from '@engine/state/GameState';
+import { isInBarrageZone, resolveAAABarrage, resolveFireCanAttack, resolveMobileAAAAttack } from '@engine/rules/aaa';
+import { allocateDamage, checkStandardEngagementPrereqs, resolveStandardCombat } from '@engine/rules/combat';
+import { applyCombatResults } from '@engine/rules/applyCombat';
 import { executeBotMovementPhase, applyBotMovement } from '@ai/BotController';
 
 const s: Record<string, React.CSSProperties> = {
@@ -265,7 +268,7 @@ const MovementPanel: React.FC = () => {
     updateGameState((state) => {
       const flight = state.flights[mvmt.activeFlightId!];
       const targetHex = getNeighbor(flight.hex, direction as any);
-      const updated = {
+      let updated = {
         ...flight,
         hex: targetHex,
         mpRemaining: flight.mpRemaining - 1,
@@ -273,16 +276,83 @@ const MovementPanel: React.FC = () => {
         hasMovedThisPhase: true,
       };
 
-      mvmt.addMovementLog(
-        `  → ${hexToId(targetHex)} (${updated.mpRemaining} MP left)`
-      );
+      mvmt.addMovementLog(`  → ${hexToId(targetHex)} (${updated.mpRemaining} MP left)`);
 
-      return {
-        ...state,
-        flights: { ...state.flights, [mvmt.activeFlightId!]: updated },
-      };
+      let newState = { ...state, flights: { ...state.flights, [mvmt.activeFlightId!]: updated } };
+
+      // ── AAA fire during movement ──
+      // Check barrage zones
+      const aaaUnits = isInBarrageZone(targetHex, newState);
+      for (const aaa of aaaUnits) {
+        if (aaa.side === flight.side) continue; // Friendly AAA deconfliction
+        const result = resolveAAABarrage(aaa, updated, newState);
+        if (result.hitNumber > 0) {
+          mvmt.addMovementLog(`  [AAA] ${aaa.subType} barrage: roll ${result.roll}/${result.hitNumber} → ${result.hit ? 'HIT' : 'miss'}`);
+          if (result.hit && result.damageResult && result.damageResult !== 'none') {
+            const dmg = allocateDamage(updated, result.damageResult);
+            mvmt.addMovementLog(`    DMG: AC#${dmg.aircraftIndex} → ${dmg.resultingDamage.toUpperCase()}`);
+            const newAc = updated.aircraft.map(a => a.index === dmg.aircraftIndex ? { ...a, damage: dmg.resultingDamage } : a);
+            updated = { ...updated, aircraft: newAc };
+            newState = { ...newState, flights: { ...newState.flights, [mvmt.activeFlightId!]: updated } };
+          }
+        }
+      }
+
+      // Check Fire Can (Radar AAA) within 2 hexes
+      for (const u of Object.values(newState.groundUnits)) {
+        if (u.side === flight.side || u.type !== 'radarAAA' || !u.radarOn) continue;
+        if (hexDistance(u.hex, targetHex) <= 2) {
+          const result = resolveFireCanAttack(u, updated, newState);
+          if (result.hitNumber > 0) {
+            mvmt.addMovementLog(`  [AAA] Fire Can: roll ${result.roll}/${result.hitNumber} → ${result.hit ? 'HIT' : 'miss'}`);
+            if (result.hit && result.damageResult && result.damageResult !== 'none') {
+              const dmg = allocateDamage(updated, result.damageResult);
+              mvmt.addMovementLog(`    DMG: AC#${dmg.aircraftIndex} → ${dmg.resultingDamage.toUpperCase()}`);
+              const newAc = updated.aircraft.map(a => a.index === dmg.aircraftIndex ? { ...a, damage: dmg.resultingDamage } : a);
+              updated = { ...updated, aircraft: newAc };
+              newState = { ...newState, flights: { ...newState.flights, [mvmt.activeFlightId!]: updated } };
+            }
+          }
+        }
+      }
+
+      // Check Mobile AAA within 1 hex
+      for (const u of Object.values(newState.groundUnits)) {
+        if (u.side === flight.side) continue;
+        const isMobile = u.type === 'mobileAAA' || u.organicMobileAAA;
+        const radarOn = u.type === 'mobileAAA' ? u.radarOn : u.organicMobileRadarOn;
+        if (!isMobile || !radarOn) continue;
+        if (hexDistance(u.hex, targetHex) <= 1) {
+          const result = resolveMobileAAAAttack(u, updated, newState);
+          if (result.hitNumber > 0) {
+            mvmt.addMovementLog(`  [AAA] Mobile AAA: roll ${result.roll}/${result.hitNumber} → ${result.hit ? 'HIT' : 'miss'}`);
+            if (result.hit && result.damageResult && result.damageResult !== 'none') {
+              const dmg = allocateDamage(updated, result.damageResult);
+              mvmt.addMovementLog(`    DMG: AC#${dmg.aircraftIndex} → ${dmg.resultingDamage.toUpperCase()}`);
+              const newAc = updated.aircraft.map(a => a.index === dmg.aircraftIndex ? { ...a, damage: dmg.resultingDamage } : a);
+              updated = { ...updated, aircraft: newAc };
+              newState = { ...newState, flights: { ...newState.flights, [mvmt.activeFlightId!]: updated } };
+            }
+          }
+        }
+      }
+
+      // ── Combat engagement check during movement ──
+      if (!updated.disordered && !updated.aborted && updated.aircraft.some(a => a.damage !== 'shotdown' && a.airToAirWeapons.some(w => !w.depleted))) {
+        const enemySide: Side = flight.side === 'nato' ? 'wp' : 'nato';
+        for (const enemy of Object.values(newState.flights)) {
+          if (enemy.side !== enemySide || !enemy.detected) continue;
+          if (enemy.aircraft.every(a => a.damage === 'shotdown')) continue;
+          if (hexDistance(updated.hex, enemy.hex) > 1) continue;
+
+          // Log engagement opportunity
+          mvmt.addMovementLog(`  ⚠ Enemy ${enemy.id} (${enemy.aircraftType}) in range — engage via End Movement`);
+          break;
+        }
+      }
+
+      return newState;
     });
-    // Valid moves auto-recalculate via the useEffect above
   }, [mvmt, updateGameState]);
 
   // ── Handle turn/climb/dive ──
