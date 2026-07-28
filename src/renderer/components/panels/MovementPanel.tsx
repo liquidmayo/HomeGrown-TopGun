@@ -5,7 +5,7 @@
  * Roll Initiative → Draw Chit → Select Flight → Set Speed → Move → Repeat
  */
 
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useMemo, useEffect } from 'react';
 import { useGameStore } from '../../store/gameStore';
 import { useMovementStore, ValidMoveHex } from '../../store/movementStore';
 import { useUIStore } from '../../store/uiStore';
@@ -220,6 +220,25 @@ const MovementPanel: React.FC = () => {
     setTimeout(() => updateValidMoves(), 50);
   }, [mvmt, updateGameState]);
 
+  // ── Auto-recalculate valid moves when flight state changes ──
+  useEffect(() => {
+    if (mvmt.step !== 'moving' || !mvmt.activeFlightId) return;
+    const flight = gameState.flights[mvmt.activeFlightId];
+    if (!flight || flight.mpRemaining <= 0) {
+      mvmt.setValidMoveHexes([]);
+      return;
+    }
+    const actions = getValidActions(flight, gameState, gameState.timeOfDay === 'night');
+    const moveHexes: ValidMoveHex[] = [];
+    for (const action of actions) {
+      if (action.type === 'move') {
+        const targetHex = getNeighbor(flight.hex, action.direction);
+        moveHexes.push({ hex: targetHex, direction: action.direction, actionType: 'move' });
+      }
+    }
+    mvmt.setValidMoveHexes(moveHexes);
+  }, [mvmt.step, mvmt.activeFlightId, gameState.flights]);
+
   // ── Calculate valid moves for active flight ──
   const updateValidMoves = useCallback(() => {
     if (!mvmt.activeFlightId) return;
@@ -263,18 +282,8 @@ const MovementPanel: React.FC = () => {
         flights: { ...state.flights, [mvmt.activeFlightId!]: updated },
       };
     });
-
-    // Recalculate valid moves after a short delay for state to update
-    setTimeout(() => {
-      const flight = gameState.flights[mvmt.activeFlightId!];
-      if (flight && flight.mpRemaining <= 1) {
-        // Check if flight will be done after this move
-        handleEndFlightMovement();
-      } else {
-        updateValidMoves();
-      }
-    }, 100);
-  }, [gameState, mvmt, updateGameState, updateValidMoves]);
+    // Valid moves auto-recalculate via the useEffect above
+  }, [mvmt, updateGameState]);
 
   // ── Handle turn/climb/dive ──
   const handleTurn = useCallback((degrees: number) => {
@@ -291,8 +300,7 @@ const MovementPanel: React.FC = () => {
       mvmt.addMovementLog(`  Turn ${degrees > 0 ? '+' : ''}${degrees}° → hdg ${newHeading}° (${updated.mpRemaining} MP)`);
       return { ...state, flights: { ...state.flights, [mvmt.activeFlightId!]: updated } };
     });
-    setTimeout(updateValidMoves, 50);
-  }, [gameState, mvmt, updateGameState, updateValidMoves]);
+  }, [mvmt, updateGameState]);
 
   const handleClimb = useCallback(() => {
     if (!mvmt.activeFlightId) return;
@@ -307,8 +315,7 @@ const MovementPanel: React.FC = () => {
       mvmt.addMovementLog(`  Climb → ${newAlt.toUpperCase()} (${updated.mpRemaining} MP)`);
       return { ...state, flights: { ...state.flights, [mvmt.activeFlightId!]: updated } };
     });
-    setTimeout(updateValidMoves, 50);
-  }, [gameState, mvmt, updateGameState, updateValidMoves]);
+  }, [mvmt, updateGameState]);
 
   const handleDive = useCallback((toAlt: string) => {
     if (!mvmt.activeFlightId) return;
@@ -319,8 +326,7 @@ const MovementPanel: React.FC = () => {
       mvmt.addMovementLog(`  Dive → ${toAlt.toUpperCase()} (${updated.mpRemaining} MP)`);
       return { ...state, flights: { ...state.flights, [mvmt.activeFlightId!]: updated } };
     });
-    setTimeout(updateValidMoves, 50);
-  }, [gameState, mvmt, updateGameState, updateValidMoves]);
+  }, [mvmt, updateGameState]);
 
   // ── End flight movement ──
   const handleEndFlightMovement = useCallback(() => {

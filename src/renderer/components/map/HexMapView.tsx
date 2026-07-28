@@ -1,412 +1,376 @@
+/**
+ * Hex Map View — renders the game map using HTML5 Canvas 2D (no WebGL required).
+ */
+
 import React, { useRef, useEffect, useCallback } from 'react';
-import { Application, Graphics, Container, Text, TextStyle } from 'pixi.js';
 import { useUIStore } from '../../store/uiStore';
 import { useGameStore } from '../../store/gameStore';
-import { HexCoord, HexData, hexToId } from '@engine/state/GameState';
-import {
-  HEX_SIZE, HEX_WIDTH, HEX_HEIGHT,
-  hexToPixel, pixelToHex, hexCorners,
-} from '@engine/hex';
-import { drawFlights, drawGroundUnits } from './UnitOverlay';
+import { HexCoord, HexData, FlightState, GroundUnitState, hexToId } from '@engine/state/GameState';
+import { HEX_SIZE, HEX_WIDTH, HEX_HEIGHT, hexToPixel, pixelToHex, hexCorners } from '@engine/hex';
 import { useMovementStore } from '../../store/movementStore';
 
-// Map dimensions (columns 00-79, rows 00-50)
 const MAP_COLS = 80;
 const MAP_ROWS = 51;
 
-// ── Terrain Colors ────────────────────────────────────────────────
+// ── Colors ───────────────────────────────────────────────────────
 
-const TERRAIN_FILL: Record<string, { color: number; alpha: number }> = {
-  land:     { color: 0xc8c4a0, alpha: 0.65 },
-  rough:    { color: 0x7ba858, alpha: 0.75 },
-  mountain: { color: 0x5b7040, alpha: 0.80 },
-  urban:    { color: 0xd08898, alpha: 0.75 },
-  river:    { color: 0x4888cc, alpha: 0.70 },
-  road:     { color: 0xc8c0a0, alpha: 0.65 },
-  highway:  { color: 0xc8c0a0, alpha: 0.65 },
-  default:  { color: 0xa8a088, alpha: 0.50 },
+const TERRAIN_COLORS: Record<string, string> = {
+  land: '#c8c4a0', rough: '#7ba858', mountain: '#4b6838',
+  urban: '#d08898', river: '#4888cc', road: '#b8b498',
+  default: '#a8a088',
 };
 
-// ── Render Helpers ────────────────────────────────────────────────
+const SIDE_COLORS = { nato: '#3366cc', wp: '#cc3333' };
+const ALT_SHORT: Record<string, string> = { deck: 'DK', low: 'LO', medium: 'MD', high: 'HI', veryHigh: 'VH' };
 
-function getHexFill(hexData: HexData | undefined): { color: number; alpha: number } {
-  if (!hexData || hexData.terrain.length === 0) return TERRAIN_FILL.default;
-
-  // Priority: mountain > rough > urban > river > road > land
-  const priority = ['mountain', 'rough', 'urban', 'river', 'road', 'land'];
-  for (const t of priority) {
-    if (hexData.terrain.includes(t as any)) {
-      return TERRAIN_FILL[t] ?? TERRAIN_FILL.default;
-    }
-  }
-  return TERRAIN_FILL.default;
-}
-
-const COORD_TEXT_STYLE = new TextStyle({
-  fontSize: 9,
-  fill: '#334',
-  fontFamily: 'monospace',
-});
-
-const AIRFIELD_TEXT_STYLE = new TextStyle({
-  fontSize: 8,
-  fill: '#1144aa',
-  fontFamily: 'Segoe UI, sans-serif',
-  fontWeight: 'bold',
-});
-
-// ── Component ─────────────────────────────────────────────────────
+// ── Component ────────────────────────────────────────────────────
 
 const HexMapView: React.FC = () => {
-  const canvasRef = useRef<HTMLDivElement>(null);
-  const appRef = useRef<Application | null>(null);
-  const mapContainerRef = useRef<Container | null>(null);
-  const highlightRef = useRef<Graphics | null>(null);
-  const hoverHighlightRef = useRef<Graphics | null>(null);
-
-  const { selectHex, camera, setCamera } = useUIStore();
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const { selectHex } = useUIStore();
   const { gameState, gameActive } = useGameStore();
   const { validMoveHexes } = useMovementStore();
 
-  const dragRef = useRef({ dragging: false, startX: 0, startY: 0, lastX: 0, lastY: 0 });
+  const camRef = useRef({ x: 0, y: 0, zoom: 2.0 });
+  const dragRef = useRef({ dragging: false, sx: 0, sy: 0, lx: 0, ly: 0 });
+  const selectedHexRef = useRef<HexCoord | null>(null);
 
-  const initPixi = useCallback(async () => {
-    if (!canvasRef.current || appRef.current) return;
+  // Convert screen coords to world coords
+  const screenToWorld = useCallback((sx: number, sy: number) => {
+    const c = camRef.current;
+    return { x: (sx - c.x) / c.zoom, y: (sy - c.y) / c.zoom };
+  }, []);
 
-    const app = new Application();
-    await app.init({
-      resizeTo: canvasRef.current,
-      backgroundColor: 0x141428,
-      antialias: true,
-      resolution: window.devicePixelRatio || 1,
-      autoDensity: true,
-    });
+  // ── Draw everything ──
+  const draw = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
 
-    canvasRef.current.appendChild(app.canvas as HTMLCanvasElement);
-    appRef.current = app;
+    const w = canvas.width;
+    const h = canvas.height;
+    const cam = camRef.current;
 
-    // Map container for pan/zoom
-    const mapContainer = new Container();
-    mapContainer.eventMode = 'static';
-    app.stage.addChild(mapContainer);
-    mapContainerRef.current = mapContainer;
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = '#141428';
+    ctx.fillRect(0, 0, w, h);
 
-    // Layer 0: Hex grid with terrain
-    const gridLayer = new Container();
-    mapContainer.addChild(gridLayer);
-    drawHexGrid(gridLayer, gameState.hexes);
+    ctx.save();
+    ctx.translate(cam.x, cam.y);
+    ctx.scale(cam.zoom, cam.zoom);
 
-    // Layer 1: Front line (if game active)
-    if (gameActive && gameState.frontHexes.length > 0) {
-      const frontLayer = new Graphics();
-      drawFrontLine(frontLayer, gameState.frontHexes);
-      mapContainer.addChild(frontLayer);
-    }
+    const hexKeys = Object.keys(gameState.hexes);
+    const hexData = gameState.hexes;
 
-    // Layer 2: Ground units
-    if (gameActive) {
-      const groundLayer = new Container();
-      drawGroundUnits(groundLayer, gameState.groundUnits);
-      mapContainer.addChild(groundLayer);
-    }
-
-    // Layer 3: Flight units
-    if (gameActive) {
-      const flightLayer = new Container();
-      drawFlights(flightLayer, gameState.flights);
-      mapContainer.addChild(flightLayer);
-    }
-
-    // Layer 4: Valid move highlights
-    if (validMoveHexes.length > 0) {
-      const moveHighlights = new Graphics();
-      for (const vh of validMoveHexes) {
-        const { x, y } = hexToPixel(vh.hex.col, vh.hex.row);
-        const corners = hexCorners(x, y, HEX_SIZE - 2);
-        moveHighlights.poly(corners);
-        moveHighlights.fill({ color: 0x44ff44, alpha: 0.2 });
-        moveHighlights.stroke({ width: 2, color: 0x44ff44, alpha: 0.7 });
-      }
-      mapContainer.addChild(moveHighlights);
-    }
-
-    // Layer 5: Selection highlight
-    const highlight = new Graphics();
-    highlight.visible = false;
-    mapContainer.addChild(highlight);
-    highlightRef.current = highlight;
-
-    // Layer 5: Hover highlight
-    const hoverHighlight = new Graphics();
-    hoverHighlight.visible = false;
-    mapContainer.addChild(hoverHighlight);
-    hoverHighlightRef.current = hoverHighlight;
-
-    // ── Mouse interaction ──
-    const canvas = app.canvas as HTMLCanvasElement;
-
-    canvas.addEventListener('pointerdown', (e: PointerEvent) => {
-      dragRef.current = {
-        dragging: true,
-        startX: e.clientX,
-        startY: e.clientY,
-        lastX: e.clientX,
-        lastY: e.clientY,
-      };
-      canvas.style.cursor = 'grabbing';
-    });
-
-    canvas.addEventListener('pointermove', (e: PointerEvent) => {
-      const rect = canvas.getBoundingClientRect();
-      const localX = (e.clientX - rect.left - mapContainer.x) / mapContainer.scale.x;
-      const localY = (e.clientY - rect.top - mapContainer.y) / mapContainer.scale.y;
-      const hex = pixelToHex(localX, localY);
-
-      if (dragRef.current.dragging) {
-        const dx = e.clientX - dragRef.current.lastX;
-        const dy = e.clientY - dragRef.current.lastY;
-        mapContainer.x += dx;
-        mapContainer.y += dy;
-        dragRef.current.lastX = e.clientX;
-        dragRef.current.lastY = e.clientY;
-      }
-
-      // Hover highlight
-      if (hoverHighlightRef.current && hex.col >= 0 && hex.col < MAP_COLS && hex.row >= 0 && hex.row < MAP_ROWS) {
-        const { x, y } = hexToPixel(hex.col, hex.row);
-        hoverHighlightRef.current.clear();
-        hoverHighlightRef.current.poly(hexCorners(x, y, HEX_SIZE - 1));
-        hoverHighlightRef.current.stroke({ width: 1.5, color: 0x88aacc, alpha: 0.6 });
-        hoverHighlightRef.current.visible = true;
-      }
-    });
-
-    canvas.addEventListener('pointerup', (e: PointerEvent) => {
-      canvas.style.cursor = 'grab';
-      if (!dragRef.current.dragging) return;
-
-      const totalDrag =
-        Math.abs(e.clientX - dragRef.current.startX) +
-        Math.abs(e.clientY - dragRef.current.startY);
-      dragRef.current.dragging = false;
-
-      // Treat as click if barely moved
-      if (totalDrag < 5) {
-        const rect = canvas.getBoundingClientRect();
-        const localX = (e.clientX - rect.left - mapContainer.x) / mapContainer.scale.x;
-        const localY = (e.clientY - rect.top - mapContainer.y) / mapContainer.scale.y;
-        const hex = pixelToHex(localX, localY);
-
-        if (hex.col >= 0 && hex.col < MAP_COLS && hex.row >= 0 && hex.row < MAP_ROWS) {
-          selectHex(hex);
-
-          if (highlightRef.current) {
-            const { x: hx, y: hy } = hexToPixel(hex.col, hex.row);
-            highlightRef.current.clear();
-            highlightRef.current.poly(hexCorners(hx, hy, HEX_SIZE - 1));
-            highlightRef.current.stroke({ width: 2.5, color: 0xe94560 });
-            highlightRef.current.visible = true;
-          }
-        }
-      }
-    });
-
-    canvas.addEventListener('pointerleave', () => {
-      dragRef.current.dragging = false;
-      canvas.style.cursor = 'grab';
-      if (hoverHighlightRef.current) hoverHighlightRef.current.visible = false;
-    });
-
-    canvas.addEventListener('wheel', (e: WheelEvent) => {
-      e.preventDefault();
-      const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
-      const newScale = Math.max(0.15, Math.min(4, mapContainer.scale.x * zoomFactor));
-
-      const rect = canvas.getBoundingClientRect();
-      const mouseX = e.clientX - rect.left;
-      const mouseY = e.clientY - rect.top;
-
-      const worldX = (mouseX - mapContainer.x) / mapContainer.scale.x;
-      const worldY = (mouseY - mapContainer.y) / mapContainer.scale.y;
-
-      mapContainer.scale.set(newScale);
-      mapContainer.x = mouseX - worldX * newScale;
-      mapContainer.y = mouseY - worldY * newScale;
-    }, { passive: false });
-
-    // Center the view on the play area if game is active
-    if (gameActive && Object.keys(gameState.hexes).length > 0) {
-      // Find bounds of hexes that exist
-      const hexIds = Object.keys(gameState.hexes);
-      let minCol = 79, maxCol = 0, minRow = 50, maxRow = 0;
-      for (const id of hexIds) {
-        const c = parseInt(id.substring(0, 2), 10);
-        const r = parseInt(id.substring(2, 4), 10);
-        if (c < minCol) minCol = c;
-        if (c > maxCol) maxCol = c;
-        if (r < minRow) minRow = r;
-        if (r > maxRow) maxRow = r;
-      }
-
-      const centerPixel = hexToPixel(
-        Math.floor((minCol + maxCol) / 2),
-        Math.floor((minRow + maxRow) / 2)
-      );
-
-      const canvasWidth = canvasRef.current?.clientWidth ?? 1200;
-      const canvasHeight = canvasRef.current?.clientHeight ?? 800;
-
-      // Calculate zoom to fit the play area
-      const areaWidthPx = (maxCol - minCol + 1) * HEX_WIDTH * 0.75;
-      const areaHeightPx = (maxRow - minRow + 1) * HEX_HEIGHT;
-      const zoomX = canvasWidth / areaWidthPx;
-      const zoomY = canvasHeight / areaHeightPx;
-      const zoom = Math.min(zoomX, zoomY) * 1.8; // Zoom in for detail
-
-      mapContainer.scale.set(zoom);
-      mapContainer.x = canvasWidth / 2 - centerPixel.x * zoom;
-      mapContainer.y = canvasHeight / 2 - centerPixel.y * zoom;
-    } else {
-      // Default view: center on map
-      mapContainer.x = 50;
-      mapContainer.y = 50;
-      mapContainer.scale.set(0.55);
-    }
-
-  }, [gameActive, gameState.hexes, gameState.frontHexes, gameState.flights, gameState.groundUnits, validMoveHexes, selectHex]);
-
-  useEffect(() => {
-    initPixi();
-    return () => {
-      if (appRef.current) {
-        appRef.current.destroy(true, { children: true });
-        appRef.current = null;
-        mapContainerRef.current = null;
-        highlightRef.current = null;
-        hoverHighlightRef.current = null;
-      }
-    };
-  }, [initPixi]);
-
-  return (
-    <div
-      ref={canvasRef}
-      style={{ width: '100%', height: '100%', cursor: 'grab' }}
-    />
-  );
-};
-
-// ── Drawing Functions ─────────────────────────────────────────────
-
-function drawHexGrid(
-  container: Container,
-  hexData: Record<string, HexData>
-): void {
-  // Terrain fill layer
-  const terrainGraphics = new Graphics();
-  // Grid line layer (drawn on top of terrain)
-  const gridGraphics = new Graphics();
-  // Coordinate labels
-  const labelContainer = new Container();
-  // Airfield markers
-  const airfieldContainer = new Container();
-
-  // Determine which hexes to draw: only those with data if data exists, else full grid
-  const hasData = Object.keys(hexData).length > 0;
-  const hexKeys = hasData
-    ? Object.keys(hexData)
-    : Array.from({ length: MAP_COLS * MAP_ROWS }, (_, i) => {
-        const c = Math.floor(i / MAP_ROWS);
-        const r = i % MAP_ROWS;
-        return `${c.toString().padStart(2, '0')}${r.toString().padStart(2, '0')}`;
-      });
-
-  for (const hKey of hexKeys) {
-    {
-      const col = parseInt(hKey.substring(0, 2), 10);
-      const row = parseInt(hKey.substring(2, 4), 10);
+    // ── Draw hex terrain ──
+    for (const hk of hexKeys) {
+      const col = parseInt(hk.substring(0, 2), 10);
+      const row = parseInt(hk.substring(2, 4), 10);
       const { x, y } = hexToPixel(col, row);
-      const data = hexData[hKey];
+      const data = hexData[hk];
       const corners = hexCorners(x, y, HEX_SIZE);
 
-      // Fill hex with terrain color
-      const fill = getHexFill(data);
-      terrainGraphics.poly(corners);
-      terrainGraphics.fill({ color: fill.color, alpha: fill.alpha });
+      // Fill
+      let fillColor = TERRAIN_COLORS.default;
+      for (const t of ['mountain', 'rough', 'urban', 'river', 'road', 'land']) {
+        if (data?.terrain.includes(t as any)) { fillColor = TERRAIN_COLORS[t]; break; }
+      }
 
-      // East Germany shading
+      ctx.beginPath();
+      ctx.moveTo(corners[0], corners[1]);
+      for (let i = 2; i < corners.length; i += 2) ctx.lineTo(corners[i], corners[i + 1]);
+      ctx.closePath();
+      ctx.fillStyle = fillColor;
+      ctx.globalAlpha = 0.7;
+      ctx.fill();
+
+      // East Germany tint
       if (data?.isEastGermany) {
-        terrainGraphics.poly(corners);
-        terrainGraphics.fill({ color: 0x440000, alpha: 0.08 });
+        ctx.fillStyle = '#440000';
+        ctx.globalAlpha = 0.1;
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+
+      // Grid outline
+      ctx.strokeStyle = '#334455';
+      ctx.lineWidth = 0.5;
+      ctx.stroke();
+
+      // River highlight
+      if (data?.terrain.includes('river')) {
+        ctx.strokeStyle = '#4488cc';
+        ctx.lineWidth = 2;
+        ctx.stroke();
       }
 
-      // Grid lines
-      gridGraphics.poly(corners);
-      gridGraphics.stroke({ width: 0.6, color: 0x334455, alpha: 0.6 });
-
-      // Coordinate label (show every other hex to reduce clutter)
-      if ((col + row) % 2 === 0) {
-        const label = new Text({
-          text: hKey,
-          style: COORD_TEXT_STYLE,
-        });
-        label.x = x - 10;
-        label.y = y - 4;
-        labelContainer.addChild(label);
-      }
+      // Coordinate label
+      ctx.fillStyle = '#556';
+      ctx.font = '8px monospace';
+      ctx.fillText(hk, x - 10, y + 3);
 
       // Airfield marker
       if (data?.isAirfield) {
-        // Draw a small runway indicator
-        const af = new Graphics();
-        af.rect(x - 8, y - 1, 16, 2);
-        af.fill({ color: 0x2255aa, alpha: 0.8 });
-        af.circle(x, y, 4);
-        af.stroke({ width: 1, color: 0x2255aa, alpha: 0.8 });
-        airfieldContainer.addChild(af);
+        ctx.fillStyle = '#2255cc';
+        ctx.fillRect(x - 10, y - 8, 20, 3);
+        ctx.beginPath();
+        ctx.arc(x, y - 6, 4, 0, Math.PI * 2);
+        ctx.strokeStyle = '#2255cc';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
 
-        // Airfield name
         if (data.airfieldId) {
-          const nameLabel = new Text({
-            text: `${data.airfieldId} (${data.airfieldClass})`,
-            style: AIRFIELD_TEXT_STYLE,
-          });
-          nameLabel.x = x - 20;
-          nameLabel.y = y + 8;
-          airfieldContainer.addChild(nameLabel);
+          ctx.fillStyle = '#2255cc';
+          ctx.font = 'bold 8px sans-serif';
+          ctx.fillText(`${data.airfieldId} (${data.airfieldClass})`, x - 22, y + 14);
         }
       }
+    }
 
-      // River indicator (blue border)
-      if (data?.terrain.includes('river')) {
-        gridGraphics.poly(corners);
-        gridGraphics.stroke({ width: 1.5, color: 0x4488cc, alpha: 0.5 });
+    // ── Front line ──
+    if (gameActive && gameState.frontHexes.length > 1) {
+      ctx.beginPath();
+      const p0 = hexToPixel(gameState.frontHexes[0].col, gameState.frontHexes[0].row);
+      ctx.moveTo(p0.x, p0.y);
+      for (let i = 1; i < gameState.frontHexes.length; i++) {
+        const p = hexToPixel(gameState.frontHexes[i].col, gameState.frontHexes[i].row);
+        ctx.lineTo(p.x, p.y);
+      }
+      ctx.strokeStyle = '#ff2222';
+      ctx.lineWidth = 3;
+      ctx.globalAlpha = 0.7;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+
+    // ── Ground units ──
+    if (gameActive) {
+      for (const unit of Object.values(gameState.groundUnits)) {
+        if (unit.hidden) continue;
+        const { x, y } = hexToPixel(unit.hex.col, unit.hex.row);
+        const color = SIDE_COLORS[unit.side];
+
+        ctx.globalAlpha = 0.85;
+        if (unit.type === 'sam') {
+          // Triangle
+          ctx.beginPath();
+          ctx.moveTo(x, y - 10); ctx.lineTo(x + 8, y + 6); ctx.lineTo(x - 8, y + 6);
+          ctx.closePath();
+          ctx.fillStyle = color; ctx.fill();
+          ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.stroke();
+        } else if (unit.type === 'ewr') {
+          // Diamond
+          ctx.beginPath();
+          ctx.moveTo(x, y - 8); ctx.lineTo(x + 8, y); ctx.lineTo(x, y + 8); ctx.lineTo(x - 8, y);
+          ctx.closePath();
+          ctx.fillStyle = color; ctx.fill();
+          ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.stroke();
+        } else {
+          // Rectangle
+          ctx.fillStyle = color;
+          ctx.fillRect(x - 8, y - 6, 16, 12);
+          ctx.strokeStyle = '#fff'; ctx.lineWidth = 1;
+          ctx.strokeRect(x - 8, y - 6, 16, 12);
+        }
+        ctx.globalAlpha = 1;
+
+        // Label
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 8px monospace';
+        ctx.fillText(unit.subType, x - 14, y + 18);
+
+        // Radar indicator
+        if ((unit.type === 'sam' || unit.type === 'ewr') && unit.radarOn) {
+          ctx.fillStyle = '#00ff00';
+          ctx.beginPath(); ctx.arc(x + 10, y - 10, 3, 0, Math.PI * 2); ctx.fill();
+        }
       }
     }
-  }
 
-  container.addChild(terrainGraphics);
-  container.addChild(gridGraphics);
-  container.addChild(labelContainer);
-  container.addChild(airfieldContainer);
-}
+    // ── Flight units ──
+    if (gameActive) {
+      for (const flight of Object.values(gameState.flights)) {
+        const { x, y } = hexToPixel(flight.hex.col, flight.hex.row);
+        const color = SIDE_COLORS[flight.side];
+        const acCount = flight.aircraft.filter((a) => a.damage !== 'shotdown').length;
 
-function drawFrontLine(graphics: Graphics, frontHexes: HexCoord[]): void {
-  if (frontHexes.length < 2) return;
+        // Counter background
+        const headRad = (flight.heading * Math.PI) / 180;
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(headRad);
 
-  graphics.moveTo(
-    ...(() => {
-      const p = hexToPixel(frontHexes[0].col, frontHexes[0].row);
-      return [p.x, p.y] as [number, number];
-    })()
+        ctx.globalAlpha = flight.detected ? 0.95 : 0.6;
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.moveTo(-14, -9); ctx.lineTo(14, -9); ctx.lineTo(18, 0);
+        ctx.lineTo(14, 9); ctx.lineTo(-14, 9);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.stroke();
+        ctx.globalAlpha = 1;
+
+        ctx.restore();
+
+        // Callsign
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 10px monospace';
+        ctx.fillText(flight.isDummy ? '?' : flight.id, x - 12, y + 4);
+
+        // Altitude
+        ctx.fillStyle = flight.side === 'nato' ? '#88bbff' : '#ff8888';
+        ctx.font = '8px monospace';
+        ctx.fillText(ALT_SHORT[flight.altitude] ?? '', x - 6, y + 14);
+
+        // Aircraft count
+        ctx.fillStyle = '#ccc';
+        ctx.font = '8px monospace';
+        ctx.fillText(`×${acCount}`, x + 12, y - 8);
+
+        // Status markers
+        if (flight.disordered) {
+          ctx.fillStyle = '#ffaa00';
+          ctx.beginPath(); ctx.arc(x + 16, y - 4, 3, 0, Math.PI * 2); ctx.fill();
+        }
+        if (flight.aborted) {
+          ctx.fillStyle = '#ff0000';
+          ctx.beginPath(); ctx.arc(x + 16, y + 4, 3, 0, Math.PI * 2); ctx.fill();
+        }
+      }
+    }
+
+    // ── Valid move highlights ──
+    if (validMoveHexes.length > 0) {
+      for (const vh of validMoveHexes) {
+        const { x, y } = hexToPixel(vh.hex.col, vh.hex.row);
+        const corners = hexCorners(x, y, HEX_SIZE - 1);
+
+        ctx.beginPath();
+        ctx.moveTo(corners[0], corners[1]);
+        for (let i = 2; i < corners.length; i += 2) ctx.lineTo(corners[i], corners[i + 1]);
+        ctx.closePath();
+        ctx.fillStyle = '#44ff44';
+        ctx.globalAlpha = 0.3;
+        ctx.fill();
+        ctx.strokeStyle = '#44ff44';
+        ctx.lineWidth = 3;
+        ctx.globalAlpha = 0.9;
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    // ── Selected hex highlight ──
+    if (selectedHexRef.current) {
+      const { x, y } = hexToPixel(selectedHexRef.current.col, selectedHexRef.current.row);
+      const corners = hexCorners(x, y, HEX_SIZE - 1);
+      ctx.beginPath();
+      ctx.moveTo(corners[0], corners[1]);
+      for (let i = 2; i < corners.length; i += 2) ctx.lineTo(corners[i], corners[i + 1]);
+      ctx.closePath();
+      ctx.strokeStyle = '#e94560';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  }, [gameState, gameActive, validMoveHexes]);
+
+  // ── Resize canvas to fill container ──
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const resize = () => {
+      const parent = canvas.parentElement;
+      if (parent) {
+        canvas.width = parent.clientWidth;
+        canvas.height = parent.clientHeight;
+        draw();
+      }
+    };
+    resize();
+    window.addEventListener('resize', resize);
+    return () => window.removeEventListener('resize', resize);
+  }, [draw]);
+
+  // ── Redraw on state changes ──
+  useEffect(() => { draw(); }, [draw]);
+
+  // ── Center camera when scenario loads ──
+  useEffect(() => {
+    if (!canvasRef.current || !gameActive) return;
+    const humanFlights = Object.values(gameState.flights).filter(
+      (f) => f.side === gameState.humanSide && !f.isOnGround
+    );
+    const centerFlight = humanFlights[0] ?? Object.values(gameState.flights)[0];
+    if (centerFlight) {
+      const cp = hexToPixel(centerFlight.hex.col, centerFlight.hex.row);
+      const cw = canvasRef.current.width;
+      const ch = canvasRef.current.height;
+      camRef.current = { x: cw / 2 - cp.x * 2.5, y: ch / 2 - cp.y * 2.5, zoom: 2.5 };
+      draw();
+    }
+  }, [gameState.scenarioId]);
+
+  // ── Mouse handlers ──
+  const handlePointerDown = useCallback((e: React.PointerEvent) => {
+    dragRef.current = { dragging: true, sx: e.clientX, sy: e.clientY, lx: e.clientX, ly: e.clientY };
+  }, []);
+
+  const handlePointerMove = useCallback((e: React.PointerEvent) => {
+    if (dragRef.current.dragging) {
+      camRef.current.x += e.clientX - dragRef.current.lx;
+      camRef.current.y += e.clientY - dragRef.current.ly;
+      dragRef.current.lx = e.clientX;
+      dragRef.current.ly = e.clientY;
+      draw();
+    }
+  }, [draw]);
+
+  const handlePointerUp = useCallback((e: React.PointerEvent) => {
+    const totalDrag = Math.abs(e.clientX - dragRef.current.sx) + Math.abs(e.clientY - dragRef.current.sy);
+    dragRef.current.dragging = false;
+    if (totalDrag < 5 && canvasRef.current) {
+      const rect = canvasRef.current.getBoundingClientRect();
+      const world = screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
+      const hex = pixelToHex(world.x, world.y);
+      if (hex.col >= 0 && hex.col < MAP_COLS && hex.row >= 0 && hex.row < MAP_ROWS) {
+        selectedHexRef.current = hex;
+        selectHex(hex);
+        draw();
+      }
+    }
+  }, [draw, screenToWorld, selectHex]);
+
+  const handleWheel = useCallback((e: React.WheelEvent) => {
+    e.preventDefault();
+    const factor = e.deltaY > 0 ? 0.9 : 1.1;
+    const cam = camRef.current;
+    const newZoom = Math.max(0.3, Math.min(5, cam.zoom * factor));
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    const wx = (mx - cam.x) / cam.zoom;
+    const wy = (my - cam.y) / cam.zoom;
+    cam.zoom = newZoom;
+    cam.x = mx - wx * newZoom;
+    cam.y = my - wy * newZoom;
+    draw();
+  }, [draw]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      style={{ width: '100%', height: '100%', cursor: 'grab', display: 'block' }}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerLeave={() => { dragRef.current.dragging = false; }}
+      onWheel={handleWheel}
+    />
   );
-
-  for (let i = 1; i < frontHexes.length; i++) {
-    const p = hexToPixel(frontHexes[i].col, frontHexes[i].row);
-    graphics.lineTo(p.x, p.y);
-  }
-
-  graphics.stroke({ width: 3, color: 0xff2222, alpha: 0.7 });
-}
+};
 
 export default HexMapView;

@@ -17,17 +17,168 @@ import {
   RS1_WP_SETUP,
   RS1_TARGETS,
 } from '../data/scenarios/rs01-morning-recon';
+import { getScenario } from '../data/scenarios/scenarioRegistry';
+import { ScenarioDefinition } from '../data/scenarios/scenarioTypes';
 
 /**
  * Load a scenario by ID and return an initialized GameState.
  */
 export function loadScenario(scenarioId: string): GameState {
-  switch (scenarioId) {
-    case 'rs01':
-      return loadRS1();
-    default:
-      throw new Error(`Unknown scenario: ${scenarioId}`);
+  if (scenarioId === 'rs01') {
+    return loadRS1();
   }
+
+  // Try loading from the scenario registry
+  const scenarioDef = getScenario(scenarioId);
+  if (scenarioDef) {
+    return loadFromDefinition(scenarioDef);
+  }
+
+  throw new Error(`Unknown scenario: ${scenarioId}`);
+}
+
+/**
+ * Generic loader that creates a GameState from a ScenarioDefinition.
+ * Used for solo scenarios and any future scenarios entered via the registry.
+ */
+function loadFromDefinition(scenario: ScenarioDefinition): GameState {
+  const state = createEmptyGameState();
+
+  state.scenarioId = scenario.id;
+  state.scenarioName = scenario.name;
+  state.turn = 1;
+  state.maxTurns = scenario.maxTurns;
+  state.phase = 'setup';
+  state.timeOfDay = scenario.dayNight;
+  state.moonPhase = scenario.moonPhase;
+  state.natoDetectionLevel = scenario.natoDetectionLevel;
+  state.wpDetectionLevel = scenario.wpDetectionLevel;
+  state.humanSide = scenario.humanSide === 'either' ? 'nato' : scenario.humanSide;
+  state.botSide = state.humanSide === 'nato' ? 'wp' : 'nato';
+
+  // Load map
+  state.hexes = generatePlayAreaMap(
+    scenario.playArea.minCol, scenario.playArea.maxCol,
+    scenario.playArea.minRow, scenario.playArea.maxRow,
+  );
+
+  // Front line
+  state.frontHexes = scenario.front;
+
+  // Bot state
+  const botOOB = state.botSide === 'nato' ? scenario.natoOOB : scenario.wpOOB;
+  const humanOOB = state.humanSide === 'nato' ? scenario.natoOOB : scenario.wpOOB;
+  const botActivation = botOOB.botFlightActivation;
+  state.botState = {
+    realSAMsInPlay: 0,
+    realAAAInPlay: 0,
+    realFlightsInPlay: 0,
+    maxRealFlights: botActivation?.[0]?.maxRealFlights ?? 10,
+  };
+
+  // Load flights from both OOBs
+  const loadFlights = (oob: typeof scenario.natoOOB, side: 'nato' | 'wp') => {
+    for (const setup of oob.flights) {
+      const flight: FlightState = {
+        id: setup.id,
+        side,
+        nation: setup.nation,
+        aircraftType: setup.aircraftType,
+        genericCounterId: setup.setupType === 'generic' ? setup.id : null,
+        isVisuallyIdentified: setup.setupType !== 'generic',
+        isDummy: false,
+        hex: setup.setupHex
+          ? { col: parseInt(setup.setupHex.substring(0, 2), 10), row: parseInt(setup.setupHex.substring(2, 4), 10) }
+          : setup.enterHex
+          ? { col: parseInt(setup.enterHex.substring(0, 2), 10), row: parseInt(setup.enterHex.substring(2, 4), 10) }
+          : { col: side === 'nato' ? 30 : 70, row: 5 },
+        onHexside: false,
+        heading: side === 'nato' ? 0 : 180,
+        altitude: setup.setupAltitude ?? 'medium',
+        throttle: 'combat',
+        speed: 0,
+        mpRemaining: 0,
+        hasMoved: false,
+        hasMovedThisPhase: false,
+        aircraft: Array.from({ length: setup.count }, (_, i) => ({
+          index: i + 1,
+          damage: 'none' as const,
+          bombStrength: 0,
+          bombStrengthRemaining: 0,
+          ordnance: [],
+          airToAirWeapons: [{ weaponId: side === 'nato' ? 'AIM-7M' : 'R-27R', depleted: false }],
+          crewCount: 1,
+          crewStatus: ['ok' as const],
+        })),
+        task: setup.task,
+        raidId: null,
+        flightPath: null,
+        currentWaypointIndex: 0,
+        detected: false,
+        disordered: false,
+        aborted: false,
+        inDefensiveWheel: false,
+        isOnGround: setup.setupType === 'qra',
+        groundState: setup.setupType === 'qra' ? 'ready' : null,
+        takeoffTurn: null,
+        landingTurn: null,
+        markers: [],
+        pilotQuality: 'regular',
+        aggressionValue: setup.aggressionValue,
+        fuelUsed: 0,
+        fuelAllowance: 5,
+        extraFuelUsed: 0,
+      };
+      state.flights[setup.id] = flight;
+    }
+  };
+
+  loadFlights(scenario.natoOOB, 'nato');
+  loadFlights(scenario.wpOOB, 'wp');
+
+  // Load ground units from both OOBs
+  const loadGroundUnits = (oob: typeof scenario.natoOOB, side: 'nato' | 'wp') => {
+    for (const setup of oob.groundUnits) {
+      const unit: GroundUnitState = {
+        id: setup.id,
+        type: setup.type,
+        subType: setup.subType,
+        side,
+        hex: { col: parseInt(setup.hex.substring(0, 2), 10), row: parseInt(setup.hex.substring(2, 4), 10) },
+        hidden: !setup.located,
+        located: setup.located,
+        isSAMWarning: false,
+        isDummy: false,
+        radarOn: setup.radarOn,
+        ammoRemaining: setup.type === 'sam' ? 9 : 0,
+        ammoMax: setup.type === 'sam' ? 9 : 0,
+        acquisitions: {},
+        phasedArrayArc: null,
+        active: setup.type === 'aaaConcentation' || setup.type === 'ewr',
+        concentration: setup.type === 'aaaConcentation' ? 'light' : null,
+        damage: 'none',
+        radarSuppressedTurns: 0,
+        radarShutdown: false,
+        aaaSuppression: 0,
+        organicSmallArms: ['armor', 'mech', 'artillery', 'hq', 'supply', 'missile'].includes(setup.type),
+        organicLightAAA: setup.type === 'sam' || setup.type === 'ewr',
+        organicMobileAAA: null,
+        organicMobileRadarOn: false,
+      };
+      state.groundUnits[setup.id] = unit;
+    }
+  };
+
+  loadGroundUnits(scenario.natoOOB, 'nato');
+  loadGroundUnits(scenario.wpOOB, 'wp');
+
+  state.eventLog.push({
+    turn: 0, phase: 'setup', timestamp: Date.now(),
+    type: 'scenario_loaded',
+    message: `Scenario "${scenario.name}" loaded. ${scenario.date}, ${scenario.timeOfDay}.`,
+  });
+
+  return state;
 }
 
 function loadRS1(): GameState {

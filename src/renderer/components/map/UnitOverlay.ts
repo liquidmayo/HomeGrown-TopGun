@@ -14,16 +14,17 @@ const SIDE_COLORS: Record<Side, number> = {
 };
 
 const FLIGHT_LABEL_STYLE = new TextStyle({
-  fontSize: 8,
+  fontSize: 10,
   fill: '#ffffff',
   fontFamily: 'monospace',
   fontWeight: 'bold',
 });
 
 const GROUND_LABEL_STYLE = new TextStyle({
-  fontSize: 7,
+  fontSize: 9,
   fill: '#ffffff',
   fontFamily: 'monospace',
+  fontWeight: 'bold',
 });
 
 const ALT_LABELS: Record<string, string> = {
@@ -51,8 +52,8 @@ export function drawFlights(
 
     // Flight counter (rectangle with pointed front)
     const counter = new Graphics();
-    const w = 22;
-    const h = 14;
+    const w = 26;
+    const h = 16;
 
     // Draw a pointed counter showing heading
     const headingRad = (flight.heading * Math.PI) / 180;

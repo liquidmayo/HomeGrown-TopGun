@@ -7,6 +7,7 @@ import { RS_SOLO_A } from './rs-solo-a';
 import { RS_SOLO_B } from './rs-solo-b';
 import { RS_SOLO_C } from './rs-solo-c';
 import { RS_SOLO_D } from './rs-solo-d';
+import { RS02, RS03, RS04, RS05, RS06, RS07, RS08, RS09, RS10 } from './rs02-rs10';
 
 export interface ScenarioListEntry {
   id: string;
@@ -20,7 +21,18 @@ export interface ScenarioListEntry {
 }
 
 const SCENARIO_DB: Record<string, ScenarioDefinition> = {
-  // RS1 is handled by the legacy loader for now
+  // RS1 is handled by the legacy loader
+  // RS2-RS10: NATO vs AI (WP bot)
+  'rs02': RS02,
+  'rs03': RS03,
+  'rs04': RS04,
+  'rs05': RS05,
+  'rs06': RS06,
+  'rs07': RS07,
+  'rs08': RS08,
+  'rs09': RS09,
+  'rs10': RS10,
+  // Solo scenarios
   'rs-solo-a': RS_SOLO_A,
   'rs-solo-b': RS_SOLO_B,
   'rs-solo-c': RS_SOLO_C,
@@ -84,8 +96,8 @@ export function getScenarioList(): ScenarioListEntry[] {
 }
 
 export function getPlayableScenarios(): ScenarioListEntry[] {
-  // RS1 + all solo scenarios are playable
-  return getScenarioList().filter((s) =>
-    s.id === 'rs01' || s.category === 'solo'
-  );
+  // RS1, RS2-RS10, and solo scenarios are playable
+  const playableIds = new Set(Object.keys(SCENARIO_DB));
+  playableIds.add('rs01');
+  return getScenarioList().filter((s) => playableIds.has(s.id));
 }

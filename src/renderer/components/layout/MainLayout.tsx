@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import Toolbar from './Toolbar';
 import PhaseBar from './PhaseBar';
 import HexMapView from '../map/HexMapView';
@@ -10,6 +10,8 @@ import PhaseGuide from '../tutorial/PhaseGuide';
 import RuleReference from '../tutorial/RuleReference';
 import TutorialOverlay from '../tutorial/TutorialOverlay';
 import TutorialSelect from '../tutorial/TutorialSelect';
+import { getTutorial } from '@tutorial/tutorials/tutorialDefinitions';
+import { loadScenario } from '@engine/scenarioLoader';
 import EventLogPanel from '../panels/EventLogPanel';
 import { useGameStore } from '../../store/gameStore';
 import { useUIStore } from '../../store/uiStore';
@@ -98,7 +100,7 @@ const styles: Record<string, React.CSSProperties> = {
 };
 
 const MainLayout: React.FC = () => {
-  const { gameActive, gameState } = useGameStore();
+  const { gameActive, gameState, startGame } = useGameStore();
   const { selectedHex, selectedFlightId, selectFlight, panels } = useUIStore();
   const movementStore = useMovementStore();
   const [showRuleRef, setShowRuleRef] = useState(false);
@@ -284,7 +286,19 @@ const MainLayout: React.FC = () => {
       {/* Tutorial Select */}
       {showTutorialSelect && (
         <TutorialSelect
-          onSelect={(id) => { setActiveTutorial(id); setShowTutorialSelect(false); }}
+          onSelect={(id) => {
+            const tut = getTutorial(id);
+            if (tut) {
+              try {
+                const state = loadScenario(tut.scenarioId);
+                startGame(state);
+              } catch (e) {
+                console.error('Failed to load tutorial scenario:', e);
+              }
+            }
+            setActiveTutorial(id);
+            setShowTutorialSelect(false);
+          }}
           onClose={() => setShowTutorialSelect(false)}
         />
       )}

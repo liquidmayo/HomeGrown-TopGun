@@ -2,6 +2,9 @@ import { app, BrowserWindow, ipcMain } from 'electron';
 import path from 'path';
 import fs from 'fs';
 
+// Disable GPU acceleration to prevent crashes on some systems
+app.disableHardwareAcceleration();
+
 let mainWindow: BrowserWindow | null = null;
 
 function createWindow(): void {
@@ -20,11 +23,8 @@ function createWindow(): void {
 
   // In development, load from Vite dev server
   if (process.env.NODE_ENV === 'development') {
-    const port = process.env.VITE_DEV_PORT || '5190';
+    const port = process.env.VITE_DEV_PORT || '5200';
     mainWindow.loadURL(`http://localhost:${port}`);
-    if (!process.env.SCREENSHOT_MODE) {
-      mainWindow.webContents.openDevTools();
-    }
   } else {
     // In production, load the built files
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
@@ -38,43 +38,61 @@ function createWindow(): void {
 app.whenReady().then(async () => {
   createWindow();
 
-  // Auto-screenshot mode: capture after page loads, then quit
+  // Auto-screenshot mode: capture sequence of screenshots
   if (process.env.SCREENSHOT_MODE) {
     mainWindow!.webContents.on('did-finish-load', async () => {
-      // Wait for PixiJS to render
-      await new Promise((r) => setTimeout(r, 3000));
-
-      // Click "New Game (RS1)" button via JS
-      await mainWindow!.webContents.executeJavaScript(`
-        const buttons = document.querySelectorAll('button');
-        for (const b of buttons) {
-          if (b.textContent.includes('New Game')) { b.click(); break; }
-        }
-      `);
-      await new Promise((r) => setTimeout(r, 2000));
-
-      // Advance through phases: Setup -> Jamming -> Detection (stop here)
-      await mainWindow!.webContents.executeJavaScript(`
-        (function() {
-          function clickNext() {
-            const buttons = document.querySelectorAll('button');
-            for (const b of buttons) {
-              if (b.textContent && b.textContent.includes('Next Phase')) { b.click(); return true; }
+      const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+      const capture = async (name: string) => {
+        const image = await mainWindow!.webContents.capturePage();
+        const p = path.join(process.cwd(), `screenshot_${name}.png`);
+        await fs.promises.writeFile(p, image.toPNG());
+        console.log(`Saved: ${name}`);
+      };
+      const click = async (text: string) => {
+        await mainWindow!.webContents.executeJavaScript(`
+          (function() {
+            const els = document.querySelectorAll('button, div, span');
+            for (const el of els) {
+              if (el.textContent && el.textContent.trim() === '${text}') { el.click(); return true; }
+            }
+            // Try partial match
+            for (const el of els) {
+              if (el.textContent && el.textContent.includes('${text}')) { el.click(); return true; }
             }
             return false;
-          }
-          clickNext(); // Setup -> Jamming
-          setTimeout(() => clickNext(), 300); // Jamming -> Detection
-        })();
-      `);
+          })();
+        `);
+      };
 
-      await new Promise((r) => setTimeout(r, 2000));
+      await wait(6000);
 
-      // Capture screenshot
-      const image = await mainWindow!.webContents.capturePage();
-      const screenshotPath = path.join(process.cwd(), 'screenshot.png');
-      await fs.promises.writeFile(screenshotPath, image.toPNG());
-      console.log('Screenshot saved to:', screenshotPath);
+      // 1. Welcome screen
+      await capture('01_welcome');
+
+      // 2. Click "Start a Tutorial"
+      await click('Start a Tutorial');
+      await wait(1000);
+      await capture('02_tutorial_select');
+
+      // 3. Click Tutorial 1: Movement Basics
+      await click('Tutorial 1: Movement Basics');
+      await wait(1000);
+      await capture('03_tutorial_step1');
+
+      // 4. Click Next to advance through tutorial steps
+      for (let i = 2; i <= 5; i++) {
+        await click('Next');
+        await wait(500);
+      }
+      await capture('04_tutorial_step5');
+
+      // 5. Advance to the end
+      for (let i = 6; i <= 9; i++) {
+        await click('Next');
+        await wait(500);
+      }
+      await capture('05_tutorial_final');
+
       app.quit();
     });
   }

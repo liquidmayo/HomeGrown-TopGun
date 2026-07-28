@@ -62,71 +62,155 @@ export const AIRFIELDS: AirfieldDef[] = [
 // Format: hexId -> terrain types
 
 const TERRAIN_OVERRIDES: Record<string, TerrainType[]> = {
-  // RS1 area - urban hexes (cities/towns)
-  '4307': ['land', 'urban'],         // near Orbit Point
-  '4505': ['land', 'urban', 'road'], // Hoxter
-  '4514': ['land', 'urban', 'road'], // Kassel
-  '4706': ['land'],                  // EWR location
-  '4904': ['land'],                  // HAWK target
-  '5126': ['land', 'urban', 'road', 'river'], // Bad Hersfeld
-  '5303': ['land'],                  // Recon target
-  '5308': ['land'],                  // HAWK target
-  '5404': ['land'],                  // Recon target
+  // ── RS1 AREA (cols 39-79, rows 00-10) ──────────────────────────
 
-  // Rhine river hexes (western part of map)
-  '1025': ['land', 'urban', 'river', 'road'],
+  // Urban hexes / cities
+  '4002': ['land', 'urban', 'road'],       // Hildesheim area
+  '4105': ['land', 'urban'],
+  '4307': ['land', 'urban', 'road'],       // Orbit Point area
+  '4404': ['land', 'road'],
+  '4505': ['land', 'urban', 'road'],       // Hoxter airfield
+  '4706': ['land', 'road'],                // EWR location
+  '4904': ['land', 'road'],
+  '5003': ['land', 'urban', 'road'],       // Goslar
+  '5105': ['land', 'road'],
+  '5303': ['land', 'road'],                // Recon target
+  '5308': ['land'],                        // HAWK target
+  '5404': ['land'],                        // Recon target
 
-  // Rough terrain areas (Harz Mountains region, rows 02-08, cols 60-75)
-  '6303': ['rough', 'road'],
-  '6304': ['rough'],
-  '6404': ['rough'],
-  '6405': ['rough'],
-  '6504': ['rough'],
-  '6505': ['rough'],
-  '6603': ['rough'],
-  '6604': ['rough'],
-  '6705': ['rough'],
-  '6804': ['rough'],
-  '6805': ['rough'],
-  '6903': ['rough'],
-  '6904': ['rough'],
-  '7003': ['rough'],
-  '7004': ['rough'],
-  '7104': ['rough'],
-  '7105': ['rough'],
-  '7204': ['rough'],
-  '7205': ['rough'],
-  '7305': ['rough'],
-  '7306': ['rough', 'urban'],        // Ballenstedt
-
-  // Thuringer Wald (forest/rough, cols 58-68, rows 10-16)
-  '5810': ['rough'],
-  '5910': ['rough'],
-  '6010': ['rough'],
-  '6110': ['rough'],
-  '6210': ['rough'],
-  '6009': ['rough'],
-  '6109': ['rough'],
-  '6209': ['rough'],
-  '6309': ['rough', 'road'],
-
-  // Road hexes (major highways)
-  '5032': ['land', 'urban', 'road'], // Fulda
-  '6502': ['land', 'road'],          // EWR location
-
-  // Mountain terrain (limited in northern area)
-  // The Harz mountain area has some mountain hexes
-
-  // Rivers - Weser river runs through the RS1 area
+  // Weser River (runs north-south through cols 44-46)
+  '4401': ['land', 'river'],
+  '4402': ['land', 'river'],
+  '4403': ['land', 'river'],
+  '4404': ['land', 'river', 'road'],
   '4503': ['land', 'river'],
   '4504': ['land', 'river'],
-  '4604': ['land', 'river'],
-  '4605': ['land', 'river'],
+  '4505': ['land', 'river', 'urban', 'road'], // Hoxter on river
+  '4506': ['land', 'river'],
+  '4606': ['land', 'river'],
+  '4607': ['land', 'river'],
+  '4608': ['land', 'river'],
 
-  // Front line area hexes
-  '6302': ['land', 'urban', 'road'], // Ohrdruf - WP airfield
-  '5718': ['rough'],
-  '5721': ['rough'],
+  // Roads - major highways (Autobahn) through RS1 area
+  '3900': ['land', 'road'],
+  '4000': ['land', 'road'],
+  '4100': ['land', 'road'],
+  '4200': ['land', 'road'],
+  '4300': ['land', 'road'],
+  '4400': ['land', 'road'],
+  '4500': ['land', 'road'],
+  '4600': ['land', 'road'],
+  '4700': ['land', 'road'],
+  '4800': ['land', 'road'],
+  '4900': ['land', 'road'],
+  '5000': ['land', 'road'],
+  '5100': ['land', 'road'],
+  '5200': ['land', 'road'],
+  '5300': ['land', 'road'],
+  '5400': ['land', 'road'],
+  '5500': ['land', 'road'],
+  '4205': ['land', 'road'],
+  '4305': ['land', 'road'],
+  '4405': ['land', 'road'],
+  '4806': ['land', 'road'],
+  '4906': ['land', 'road'],
+  '5006': ['land', 'road'],
+  '5106': ['land', 'road'],
+  '5206': ['land', 'road'],
+
+  // Harz Mountains - Rough terrain (rows 02-07, cols 50-72)
+  '5002': ['rough'], '5003': ['rough', 'urban', 'road'],
+  '5102': ['rough'], '5103': ['rough'],
+  '5202': ['rough'], '5203': ['rough'], '5204': ['rough'],
+  '5302': ['rough'], '5303': ['rough', 'road'],
+  '5402': ['rough'], '5403': ['rough'],
+  '5502': ['rough'], '5503': ['rough'],
+  '5602': ['rough'], '5603': ['rough'],
+  '5702': ['rough'], '5703': ['rough'],
+  '5802': ['rough'], '5803': ['rough'],
+  '5902': ['rough'], '5903': ['rough'],
+  '6002': ['rough'], '6003': ['rough'],
+  '6102': ['rough'], '6103': ['rough'],
+  '6202': ['rough'], '6203': ['rough'],
+  '6302': ['land', 'urban', 'road'],       // Ohrdruf airfield
+  '6303': ['rough', 'road'],
+  '6304': ['rough'],
+  '6404': ['rough'], '6405': ['rough'],
+  '6504': ['rough'], '6505': ['rough'],
+  '6603': ['rough'], '6604': ['rough'],
+  '6705': ['rough'],
+  '6804': ['rough'], '6805': ['rough'],
+  '6903': ['rough'], '6904': ['rough'],
+  '7003': ['rough'], '7004': ['rough'],
+  '7104': ['rough'], '7105': ['rough'],
+  '7204': ['rough'], '7205': ['rough'],
+  '7305': ['rough'],
+
+  // Harz Mountain peaks (mountain hexes within the Harz)
+  '5603': ['mountain'], '5703': ['mountain'],
+  '5804': ['mountain'], '5904': ['mountain'],
+  '6004': ['mountain'], '6104': ['mountain'],
+  '6204': ['mountain'],
+
+  // ── WIDER MAP FEATURES ─────────────────────────────────────────
+
+  // Major cities
+  '4514': ['land', 'urban', 'road'],       // Kassel
+  '4521': ['land', 'urban', 'road'],       // Fritzlar airfield
+  '5126': ['land', 'urban', 'road', 'river'], // Bad Hersfeld
+  '5032': ['land', 'urban', 'road'],       // Fulda
+  '5536': ['land', 'urban'],               // Wildflecken
+  '5943': ['land', 'urban', 'road'],       // Schweinfurt
+  '7044': ['land', 'urban', 'road'],       // Bamberg
+  '7306': ['rough', 'urban'],              // Ballenstedt airfield
+  '7503': ['land', 'urban', 'road'],       // Cochstedt airfield
+  '7706': ['land', 'urban', 'road'],       // Zerbst airfield
+  '6608': ['land', 'urban', 'road'],       // Merseburg airfield
+  '6914': ['land', 'urban', 'road'],       // Altenburg airfield
+  '7210': ['land', 'urban', 'road'],       // Leipzig airfield
+  '6502': ['land', 'road'],                // EWR location
+  '1025': ['land', 'urban', 'river', 'road'], // Cologne-Bonn
+  '1603': ['land', 'urban', 'road'],       // Dortmund
+  '1908': ['land', 'urban', 'road'],       // Gutersloh
+  '2533': ['land', 'urban', 'road'],       // Ramstein
+  '3104': ['land', 'urban', 'road'],       // Paderborn
+
+  // Thuringer Wald (rough terrain, cols 56-66, rows 09-16)
+  '5609': ['rough'], '5610': ['rough'],
+  '5709': ['rough'], '5710': ['rough'],
+  '5809': ['rough'], '5810': ['rough'],
+  '5909': ['rough'], '5910': ['rough'],
+  '6009': ['rough'], '6010': ['rough'],
+  '6109': ['rough'], '6110': ['rough'],
+  '6209': ['rough'], '6210': ['rough'],
+  '6309': ['rough', 'road'],
+  '5611': ['rough'], '5711': ['rough'], '5811': ['rough'],
+  '5912': ['rough'], '6012': ['rough'], '6112': ['rough'],
+  '5613': ['rough'], '5713': ['rough'], '5813': ['rough'],
+  '5614': ['rough'], '5714': ['rough'],
+  '5615': ['rough'], '5715': ['rough'],
+
+  // Rhon Mountains (rough/mountain, cols 50-56, rows 28-35)
+  '5028': ['rough'], '5029': ['rough'], '5030': ['rough'],
+  '5128': ['rough'], '5129': ['rough'], '5130': ['rough'],
+  '5228': ['rough'], '5229': ['rough'],
+  '5131': ['mountain'], '5231': ['mountain'], '5331': ['mountain'],
+  '5132': ['rough', 'urban', 'road'], // town in rough
+
+  // Rhine River (western edge of map, cols 10-15)
+  '1020': ['land', 'river'], '1021': ['land', 'river'], '1022': ['land', 'river'],
+  '1023': ['land', 'river'], '1024': ['land', 'river'], '1025': ['land', 'river', 'urban', 'road'],
+  '1026': ['land', 'river'], '1027': ['land', 'river'], '1028': ['land', 'river'],
+  '1120': ['land', 'river'], '1121': ['land', 'river'],
+  '0920': ['land', 'river'], '0921': ['land', 'river'],
+
+  // Fulda River (cols 49-52, rows 26-32)
+  '4926': ['land', 'river'], '4927': ['land', 'river'],
+  '5027': ['land', 'river'], '5028': ['land', 'river', 'rough'],
+  '5029': ['land', 'river', 'rough'],
+  '5030': ['land', 'river', 'rough'],
+  '5031': ['land', 'river'],
+  '5032': ['land', 'river', 'urban', 'road'], // Fulda city on river
 };
 
 // ── Map Generation ───────────────────────────────────────────────
