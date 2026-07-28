@@ -27,17 +27,20 @@ interface AirfieldDef {
 }
 
 export const AIRFIELDS: AirfieldDef[] = [
-  // NATO airfields (partial list, covering RS1 and common scenarios)
+  // ── NATO Airfields ─────────────────────────────────────────────
   { hex: '0116', name: 'Eindhoven', airfieldClass: 5, side: 'nato', printedAAA: 'light' },
+  { hex: '0510', name: 'Norvenich', airfieldClass: 4, side: 'nato', printedAAA: 'light' },
   { hex: '1025', name: 'Cologne-Bonn', airfieldClass: 5, side: 'nato', printedAAA: 'light' },
   { hex: '1603', name: 'Dortmund', airfieldClass: 4, side: 'nato', printedAAA: 'light' },
   { hex: '1908', name: 'Gutersloh', airfieldClass: 4, side: 'nato', printedAAA: 'light' },
   { hex: '2328', name: 'Hahn', airfieldClass: 5, side: 'nato', printedAAA: 'light' },
   { hex: '2533', name: 'Ramstein', airfieldClass: 5, side: 'nato', printedAAA: 'light' },
+  { hex: '2535', name: 'Zweibrucken', airfieldClass: 4, side: 'nato', printedAAA: 'light' },
   { hex: '2929', name: 'Sembach', airfieldClass: 4, side: 'nato', printedAAA: 'light' },
   { hex: '3104', name: 'Paderborn', airfieldClass: 3, side: 'nato', printedAAA: 'light' },
   { hex: '3253', name: 'Buchel', airfieldClass: 4, side: 'nato', printedAAA: 'light' },
   { hex: '3641', name: 'Pferdsfeld', airfieldClass: 4, side: 'nato', printedAAA: 'light' },
+  { hex: '3835', name: 'Wiesbaden', airfieldClass: 4, side: 'nato', printedAAA: 'light' },
   { hex: '4505', name: 'Hoxter', airfieldClass: 2, side: 'nato', printedAAA: 'light' },
   { hex: '4514', name: 'Kassel', airfieldClass: 3, side: 'nato', printedAAA: 'light' },
   { hex: '4521', name: 'Fritzlar', airfieldClass: 4, side: 'nato', printedAAA: 'light' },
@@ -45,16 +48,23 @@ export const AIRFIELDS: AirfieldDef[] = [
   { hex: '5032', name: 'Fulda', airfieldClass: 3, side: 'nato', printedAAA: 'light' },
   { hex: '5536', name: 'Wildflecken', airfieldClass: 2, side: 'nato', printedAAA: 'light' },
   { hex: '5943', name: 'Schweinfurt', airfieldClass: 3, side: 'nato', printedAAA: 'light' },
+  { hex: '6247', name: 'Grafenwohr', airfieldClass: 3, side: 'nato', printedAAA: 'light' },
   { hex: '7044', name: 'Bamberg', airfieldClass: 3, side: 'nato', printedAAA: 'light' },
+  { hex: '7549', name: 'Vilseck', airfieldClass: 2, side: 'nato', printedAAA: 'light' },
 
-  // WP airfields (partial list)
+  // ── WP Airfields ───────────────────────────────────────────────
+  { hex: '5809', name: 'Erfurt', airfieldClass: 4, side: 'wp', printedAAA: 'medium' },
   { hex: '6302', name: 'Ohrdruf', airfieldClass: 3, side: 'wp', printedAAA: 'medium' },
+  { hex: '6508', name: 'Halle', airfieldClass: 3, side: 'wp', printedAAA: 'medium' },
+  { hex: '6608', name: 'Merseburg', airfieldClass: 4, side: 'wp', printedAAA: 'medium' },
+  { hex: '6914', name: 'Altenburg', airfieldClass: 4, side: 'wp', printedAAA: 'medium' },
+  { hex: '7002', name: 'Kothen', airfieldClass: 4, side: 'wp', printedAAA: 'medium' },
+  { hex: '7210', name: 'Leipzig-Schkeuditz', airfieldClass: 5, side: 'wp', printedAAA: 'medium' },
   { hex: '7306', name: 'Ballenstedt', airfieldClass: 3, side: 'wp', printedAAA: 'medium' },
   { hex: '7503', name: 'Cochstedt', airfieldClass: 4, side: 'wp', printedAAA: 'medium' },
   { hex: '7706', name: 'Zerbst', airfieldClass: 5, side: 'wp', printedAAA: 'medium' },
-  { hex: '6608', name: 'Merseburg', airfieldClass: 4, side: 'wp', printedAAA: 'medium' },
-  { hex: '6914', name: 'Altenburg', airfieldClass: 4, side: 'wp', printedAAA: 'medium' },
-  { hex: '7210', name: 'Leipzig-Schkeuditz', airfieldClass: 5, side: 'wp', printedAAA: 'medium' },
+  { hex: '7418', name: 'Brandis', airfieldClass: 4, side: 'wp', printedAAA: 'medium' },
+  { hex: '7620', name: 'Holzdorf', airfieldClass: 4, side: 'wp', printedAAA: 'medium' },
 ];
 
 // ── Known Terrain Overrides ──────────────────────────────────────
@@ -216,6 +226,99 @@ const TERRAIN_OVERRIDES: Record<string, TerrainType[]> = {
 // ── Map Generation ───────────────────────────────────────────────
 
 /**
+ * Generate default terrain for a hex based on geographic zones.
+ * This approximates the board game map's terrain layout.
+ */
+function generateDefaultTerrain(col: number, row: number): TerrainType[] {
+  const terrain: TerrainType[] = [];
+
+  // ── Harz Mountains (cols 50-72, rows 02-07) ──
+  if (col >= 50 && col <= 72 && row >= 2 && row <= 7) {
+    if (col >= 56 && col <= 62 && row >= 3 && row <= 5) terrain.push('mountain');
+    else terrain.push('rough');
+    return terrain;
+  }
+
+  // ── Thuringer Wald (cols 55-66, rows 09-16) ──
+  if (col >= 55 && col <= 66 && row >= 9 && row <= 16) {
+    if (col >= 58 && col <= 63 && row >= 10 && row <= 14) terrain.push('mountain');
+    else terrain.push('rough');
+    return terrain;
+  }
+
+  // ── Rhon Mountains (cols 49-56, rows 27-35) ──
+  if (col >= 49 && col <= 56 && row >= 27 && row <= 35) {
+    if (col >= 51 && col <= 54 && row >= 29 && row <= 33) terrain.push('mountain');
+    else terrain.push('rough');
+    return terrain;
+  }
+
+  // ── Spessart/Odenwald hills (cols 42-50, rows 32-42) ──
+  if (col >= 42 && col <= 50 && row >= 32 && row <= 42) {
+    terrain.push('rough');
+    return terrain;
+  }
+
+  // ── Frankenwald/Fichtelgebirge (cols 62-72, rows 38-48) ──
+  if (col >= 62 && col <= 72 && row >= 38 && row <= 48) {
+    if (col >= 65 && col <= 70 && row >= 40 && row <= 46) terrain.push('mountain');
+    else terrain.push('rough');
+    return terrain;
+  }
+
+  // ── Eifel hills (cols 10-22, rows 25-35) ──
+  if (col >= 10 && col <= 22 && row >= 25 && row <= 35) {
+    terrain.push('rough');
+    return terrain;
+  }
+
+  // ── Taunus/Westerwald (cols 25-40, rows 25-35) ──
+  if (col >= 25 && col <= 40 && row >= 25 && row <= 35) {
+    terrain.push('rough');
+    return terrain;
+  }
+
+  // ── Weser Hills (cols 38-48, rows 05-15) ──
+  if (col >= 38 && col <= 48 && row >= 5 && row <= 15) {
+    if ((col + row) % 3 === 0) terrain.push('rough'); // Scattered rough
+    else terrain.push('land');
+    return terrain;
+  }
+
+  // ── Major rivers ──
+  // Rhine (roughly col 10, rows 18-30)
+  if (col >= 9 && col <= 11 && row >= 18 && row <= 30) { terrain.push('land', 'river'); return terrain; }
+  // Weser (roughly col 44-46, rows 0-10)
+  if (col >= 44 && col <= 46 && row >= 0 && row <= 10) { terrain.push('land', 'river'); return terrain; }
+  // Elbe (roughly col 74-76, rows 0-10)
+  if (col >= 74 && col <= 76 && row >= 0 && row <= 10) { terrain.push('land', 'river'); return terrain; }
+  // Saale (roughly col 64-66, rows 8-16)
+  if (col >= 64 && col <= 66 && row >= 8 && row <= 16) { terrain.push('land', 'river'); return terrain; }
+  // Main (roughly row 38-42, cols 40-60)
+  if (row >= 38 && row <= 42 && col >= 40 && col <= 60 && col % 3 === 0) { terrain.push('land', 'river'); return terrain; }
+
+  // ── Major roads/highways ──
+  // East-west autobahn (rows ~15, ~25, ~35)
+  if ((row === 15 || row === 25 || row === 35) && col % 2 === 0) { terrain.push('land', 'road'); return terrain; }
+  // North-south autobahn (cols ~30, ~50, ~65)
+  if ((col === 30 || col === 50 || col === 65) && row % 2 === 0) { terrain.push('land', 'road'); return terrain; }
+
+  // ── Urban areas (scattered cities) ──
+  // Major cities not in overrides
+  const cities: Record<string, boolean> = {
+    '2010': true, '2520': true, '3020': true, '3530': true,
+    '4010': true, '4520': true, '5020': true, '5520': true,
+    '6010': true, '6520': true, '7020': true, '7520': true,
+  };
+  const id = `${col.toString().padStart(2, '0')}${row.toString().padStart(2, '0')}`;
+  if (cities[id]) { terrain.push('land', 'urban', 'road'); return terrain; }
+
+  // Default: flat land
+  terrain.push('land');
+  return terrain;
+}
+
+/**
  * Generate the full hex data map.
  * Returns a Record keyed by 4-digit hex ID.
  */
@@ -234,13 +337,13 @@ export function generateMapData(): Record<string, HexData> {
       // Find airfield data
       const airfield = AIRFIELDS.find((a) => a.hex === id);
 
-      const terrain: TerrainType[] = override
+      let terrain: TerrainType[] = override
         ? [...override]
-        : ['land'];
+        : generateDefaultTerrain(col, row);
 
       // Add airfield terrain if applicable
       if (airfield && !terrain.includes('road')) {
-        terrain.push('road'); // Airfields typically have road access
+        terrain.push('road');
       }
 
       hexes[id] = {

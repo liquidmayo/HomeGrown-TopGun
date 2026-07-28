@@ -6,6 +6,7 @@ import FlightLogPanel from '../panels/FlightLogPanel';
 import MovementPanel from '../panels/MovementPanel';
 import DetectionPanel from '../panels/DetectionPanel';
 import SAMPanel from '../panels/SAMPanel';
+import SetupPanel from '../panels/SetupPanel';
 import PhaseGuide from '../tutorial/PhaseGuide';
 import RuleReference from '../tutorial/RuleReference';
 import TutorialOverlay from '../tutorial/TutorialOverlay';
@@ -237,6 +238,9 @@ const MainLayout: React.FC = () => {
             )}
 
             {/* Phase-specific Panels */}
+            {gameActive && gameState.phase === 'setup' && (
+              <SetupPanel />
+            )}
             {gameActive && (gameState.phase === 'detection' || gameState.phase === 'track') && (
               <DetectionPanel />
             )}
