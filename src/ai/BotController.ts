@@ -11,7 +11,8 @@ import { GameState, FlightState, Side, hexToId, DamageLevel } from '../engine/st
 import { hexDistance, getNeighbor, normalizeHeading, hexBearing } from '../engine/hex';
 import { getAircraftData, getSpeed } from '../data/aircraft/aircraftDatabase';
 import { canSAMFire, resolveSAMAttack } from '../engine/rules/sam';
-import { allocateDamage, resolveStandardCombat, checkStandardEngagementPrereqs } from '../engine/rules/combat';
+import { allocateDamage, resolveStandardCombat, checkStandardEngagementPrereqs, checkBVREngagementPrereqs, rollBVREngagement, rollManeuver, resolveShot, rollDepletion, allocateDamage as allocDmg } from '../engine/rules/combat';
+import { getWeapon } from '../data/weapons/airToAirWeapons';
 import { applyCombatResults } from '../engine/rules/applyCombat';
 import { isInBarrageZone, resolveAAABarrage, resolveFireCanAttack, resolveMobileAAAAttack } from '../engine/rules/aaa';
 import { canAttackGroundTargets, canAttackTarget, getAvailableProfiles, getTotalBombPoints, resolveAirToGroundAttack, resolveGroundDamage, applyGroundDamage } from '../engine/rules/bombing';
@@ -190,24 +191,65 @@ export function applyBotMovement(
       }
       if (flightDestroyed) break;
 
-      // Combat check: if CAP flight adjacent to detected enemy, engage
+      // BVR combat check: if CAP flight has BVR weapons and detected enemy in range
       if ((updated.task === 'cap' || updated.task === 'closeEscort') && !updated.disordered &&
           updated.aircraft.some(a => a.damage !== 'shotdown' && a.airToAirWeapons.some(w => !w.depleted))) {
+        let engaged = false;
+
+        // Try BVR first (longer range)
         for (const enemy of Object.values(state.flights)) {
           if (enemy.side !== enemySide || !enemy.detected || enemy.isOnGround) continue;
           if (enemy.aircraft.every(a => a.damage === 'shotdown')) continue;
-          if (hexDistance(updated.hex, enemy.hex) > 1) continue;
+          const dist = hexDistance(updated.hex, enemy.hex);
+          if (dist <= 1 || dist > 12) continue; // BVR is 2-12 hexes
 
-          const check = checkStandardEngagementPrereqs(updated, enemy, state);
-          if (check.canEngage) {
-            const combat = resolveStandardCombat(updated, enemy, state.timeOfDay === 'day');
-            if (combat.engagement.combatOccurs) {
-              // Apply combat and consume remaining MP
-              state = applyCombatResults({ ...state, flights: { ...state.flights, [fa.flightId]: updated } }, fa.flightId, enemy.id, combat);
-              updated = state.flights[fa.flightId];
+          const tempState = { ...state, flights: { ...state.flights, [fa.flightId]: updated } };
+          const bvrCheck = checkBVREngagementPrereqs(updated, enemy, tempState);
+          if (bvrCheck.canEngage) {
+            const bvrResult = rollBVREngagement(updated, enemy);
+            if (bvrResult.combatOccurs) {
+              // BVR: only attacker shoots, no scatter, no MP cost
+              const atkManeuver = rollManeuver(updated, true, false, false, true);
+              for (let s = 0; s < atkManeuver.shotOpportunities; s++) {
+                const bvrWeapon = updated.aircraft.find(a => a.damage !== 'shotdown' && a.airToAirWeapons.find(w => !w.depleted && getWeapon(w.weaponId)?.bvrCombatValue))?.airToAirWeapons.find(w => !w.depleted && getWeapon(w.weaponId)?.bvrCombatValue);
+                if (bvrWeapon) {
+                  const weapon = getWeapon(bvrWeapon.weaponId);
+                  if (weapon) {
+                    const shotResult = resolveShot(weapon, false, true);
+                    if (shotResult.hit && shotResult.damageType) {
+                      // Apply damage to enemy
+                      const dmg = allocateDamage(enemy, shotResult.damageType);
+                      const newEnemyAc = state.flights[enemy.id].aircraft.map(a =>
+                        a.index === dmg.aircraftIndex ? { ...a, damage: dmg.resultingDamage } : a
+                      );
+                      state = { ...state, flights: { ...state.flights, [enemy.id]: { ...state.flights[enemy.id], aircraft: newEnemyAc } } };
+                    }
+                  }
+                }
+              }
             }
-            updated = { ...updated, mpRemaining: 0 };
-            break;
+            break; // One BVR attempt per movement step
+          }
+        }
+
+        // Standard combat check: adjacent to detected enemy
+        if (!engaged) {
+          for (const enemy of Object.values(state.flights)) {
+            if (enemy.side !== enemySide || !enemy.detected || enemy.isOnGround) continue;
+            if (enemy.aircraft.every(a => a.damage === 'shotdown')) continue;
+            if (hexDistance(updated.hex, enemy.hex) > 1) continue;
+
+            const check = checkStandardEngagementPrereqs(updated, enemy, state);
+            if (check.canEngage) {
+              const combat = resolveStandardCombat(updated, enemy, state.timeOfDay === 'day');
+              if (combat.engagement.combatOccurs) {
+                state = applyCombatResults({ ...state, flights: { ...state.flights, [fa.flightId]: updated } }, fa.flightId, enemy.id, combat);
+                updated = state.flights[fa.flightId];
+              }
+              updated = { ...updated, mpRemaining: 0 };
+              engaged = true;
+              break;
+            }
           }
         }
         if (updated.mpRemaining <= 0) break;

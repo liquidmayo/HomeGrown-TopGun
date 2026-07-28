@@ -118,6 +118,26 @@ const ACTION_RULES: ActionRule[] = [
     }),
   },
 
+  // Priority 2.5: RTB if only guns remain (no missiles) and CAP task
+  {
+    id: 'low_weapons_rtb',
+    priority: 2.5,
+    condition: (f, gs, ctx) => {
+      if (f.task !== 'cap') return false;
+      if (!ctx.hasWeapons) return false;
+      // Check if only guns remain (all IRM/RHM depleted)
+      const hasMissiles = f.aircraft.some((a) =>
+        a.damage !== 'shotdown' &&
+        a.airToAirWeapons.some((w) => !w.depleted && !w.weaponId.startsWith('Gun'))
+      );
+      return !hasMissiles; // Only guns left
+    },
+    action: (f) => ({
+      type: 'rtb',
+      reason: 'Missiles depleted — RTB with guns only',
+    }),
+  },
+
   // Priority 3: RTB if all aircraft damaged/crippled
   {
     id: 'damaged_rtb',

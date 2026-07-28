@@ -19,7 +19,7 @@
  */
 
 import { FlightState, GameState, HexCoord, DamageLevel, hexToId } from '../state/GameState';
-import { hexDistance, isInForwardArc, isInForwardHemisphere, getArc, altitudeIndex, altitudeDifference, getNeighbor } from '../hex';
+import { hexDistance, isInForwardArc, isInForwardHemisphere, getArc, altitudeIndex, altitudeDifference, getNeighbor, normalizeHeading } from '../hex';
 import { getAircraftData } from '../../data/aircraft/aircraftDatabase';
 import { getWeapon, AirToAirWeapon } from '../../data/weapons/airToAirWeapons';
 import { roll1d10, roll2d10 } from './detection';
@@ -587,24 +587,45 @@ export interface ScatterResult {
 
 /**
  * Resolve scatter after standard combat.
- * Rule 13.2: Roll die and follow scatter diagram.
+ * Rule 13.2: Roll die, scatter relative to flight heading.
+ * Low rolls = forward/beam scatter. High rolls = rear scatter with descent.
  */
 export function rollScatter(flight: FlightState): ScatterResult {
   const roll = roll1d10();
 
-  // Simplified scatter: move 1 hex in a direction based on roll
-  // and possibly descend an altitude band
-  const scatterDirections = [0, 1, 2, 3, 4, 5]; // 6 hex directions
-  const dirIdx = (roll - 1) % 6;
-  const descend = roll >= 7; // High rolls include descent
+  const headingDirMap: Record<number, number> = { 0:0, 60:5, 120:4, 180:3, 240:2, 300:1 };
+  const baseDir = headingDirMap[normalizeHeading(flight.heading)] ?? 0;
 
-  const newHex = getNeighbor(flight.hex, dirIdx as 0 | 1 | 2 | 3 | 4 | 5);
-  const headingChange = ((roll % 3) - 1) * 60; // -60, 0, or +60
+  let scatterOffset: number;
+  let descend = false;
+  let headingChange = 0;
+
+  if (roll <= 2) {
+    scatterOffset = roll === 1 ? 5 : 1; // Forward-beam left/right
+    headingChange = roll === 1 ? -60 : 60;
+  } else if (roll <= 4) {
+    scatterOffset = roll === 3 ? 4 : 2; // Beam left/right
+    headingChange = roll === 3 ? -30 : 30;
+  } else if (roll <= 6) {
+    scatterOffset = 0; // Forward scatter
+    headingChange = roll === 5 ? -30 : 30;
+  } else if (roll <= 8) {
+    scatterOffset = 3; // Rear scatter with descent
+    headingChange = roll === 7 ? -90 : 90;
+    descend = true;
+  } else {
+    scatterOffset = roll === 9 ? 4 : 2; // Rear-beam with descent
+    headingChange = roll === 9 ? -120 : 120;
+    descend = true;
+  }
+
+  const scatterDir = ((baseDir + scatterOffset) % 6) as 0|1|2|3|4|5;
+  const candidate = getNeighbor(flight.hex, scatterDir);
+  const newHex = (candidate.col >= 0 && candidate.col <= 79 && candidate.row >= 0 && candidate.row <= 50)
+    ? candidate : flight.hex;
 
   return {
-    flightId: flight.id,
-    roll,
-    newHex,
+    flightId: flight.id, roll, newHex,
     altitudeChange: descend ? -1 : 0,
     headingChange,
   };

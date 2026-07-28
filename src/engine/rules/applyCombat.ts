@@ -69,14 +69,30 @@ export function applyCombatResults(
 
   // ── Apply scatter (standard combat only) ──
   if (combat.type === 'standard') {
+    const altOrder: ('deck'|'low'|'medium'|'high'|'veryHigh')[] = ['deck','low','medium','high','veryHigh'];
+
     if (combat.attackerScatter) {
-      attacker = { ...attacker, hex: combat.attackerScatter.newHex };
+      const s = combat.attackerScatter;
+      let newAlt = attacker.altitude;
+      if (s.altitudeChange < 0) {
+        const idx = altOrder.indexOf(attacker.altitude);
+        if (idx > 0) newAlt = altOrder[idx - 1];
+      }
+      const newHeading = ((attacker.heading + s.headingChange) % 360 + 360) % 360;
+      attacker = { ...attacker, hex: s.newHex, altitude: newAlt, heading: newHeading };
       if (!attacker.markers.includes('maneuver')) {
         attacker = { ...attacker, markers: [...attacker.markers, 'maneuver'] };
       }
     }
     if (combat.defenderScatter) {
-      defender = { ...defender, hex: combat.defenderScatter.newHex };
+      const s = combat.defenderScatter;
+      let newAlt = defender.altitude;
+      if (s.altitudeChange < 0) {
+        const idx = altOrder.indexOf(defender.altitude);
+        if (idx > 0) newAlt = altOrder[idx - 1];
+      }
+      const newHeading = ((defender.heading + s.headingChange) % 360 + 360) % 360;
+      defender = { ...defender, hex: s.newHex, altitude: newAlt, heading: newHeading };
       if (!defender.markers.includes('maneuver')) {
         defender = { ...defender, markers: [...defender.markers, 'maneuver'] };
       }

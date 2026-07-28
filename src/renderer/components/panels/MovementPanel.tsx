@@ -17,6 +17,7 @@ import { FlightState, Throttle, hexToId, Side } from '@engine/state/GameState';
 import { isInBarrageZone, resolveAAABarrage, resolveFireCanAttack, resolveMobileAAAAttack } from '@engine/rules/aaa';
 import { allocateDamage, checkStandardEngagementPrereqs, resolveStandardCombat } from '@engine/rules/combat';
 import { applyCombatResults } from '@engine/rules/applyCombat';
+import { playDiceRoll, playFlakBurst, playCombatEngage, playExplosion } from '../../audio';
 import { executeBotMovementPhase, applyBotMovement } from '@ai/BotController';
 
 const s: Record<string, React.CSSProperties> = {
@@ -129,6 +130,7 @@ const MovementPanel: React.FC = () => {
 
   // ── Step: Roll Initiative ──
   const handleRollInitiative = useCallback(() => {
+    playDiceRoll();
     const result = rollInitiative();
     mvmt.setInitiativeResult(result.winner, result.roll);
     mvmt.addMovementLog(
@@ -287,8 +289,10 @@ const MovementPanel: React.FC = () => {
         if (aaa.side === flight.side) continue; // Friendly AAA deconfliction
         const result = resolveAAABarrage(aaa, updated, newState);
         if (result.hitNumber > 0) {
+          playFlakBurst();
           mvmt.addMovementLog(`  [AAA] ${aaa.subType} barrage: roll ${result.roll}/${result.hitNumber} → ${result.hit ? 'HIT' : 'miss'}`);
           if (result.hit && result.damageResult && result.damageResult !== 'none') {
+            playExplosion();
             const dmg = allocateDamage(updated, result.damageResult);
             mvmt.addMovementLog(`    DMG: AC#${dmg.aircraftIndex} → ${dmg.resultingDamage.toUpperCase()}`);
             const newAc = updated.aircraft.map(a => a.index === dmg.aircraftIndex ? { ...a, damage: dmg.resultingDamage } : a);
@@ -346,6 +350,7 @@ const MovementPanel: React.FC = () => {
           if (hexDistance(updated.hex, enemy.hex) > 1) continue;
 
           // Log engagement opportunity
+          playCombatEngage();
           mvmt.addMovementLog(`  ⚠ Enemy ${enemy.id} (${enemy.aircraftType}) in range — engage via End Movement`);
           break;
         }

@@ -7,6 +7,7 @@
 
 import React, { useState, useCallback } from 'react';
 import { useGameStore } from '../../store/gameStore';
+import { playDetectionPing, playDiceRoll } from '../../audio';
 import {
   runDetectionPhase,
   applyDetectionResults,
@@ -109,8 +110,10 @@ const DetectionPanel: React.FC = () => {
 
   // ── Detection Phase ──
   const handleRunDetection = useCallback(() => {
+    playDiceRoll();
     const detResults = runDetectionPhase(gameState);
     setResults(detResults);
+    if (detResults.some((r) => r.detected)) playDetectionPing();
 
     // Apply results to game state
     updateGameState((state) => applyDetectionResults(state, detResults));

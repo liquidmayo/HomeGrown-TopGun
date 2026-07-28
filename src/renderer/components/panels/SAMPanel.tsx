@@ -4,6 +4,7 @@
 
 import React, { useState, useCallback } from 'react';
 import { useGameStore } from '../../store/gameStore';
+import { playDiceRoll, playSAMAcquisition } from '../../audio';
 import {
   runSAMAcquisitionPhase,
   applyAcquisitionResults,
@@ -101,10 +102,11 @@ const SAMPanel: React.FC = () => {
 
   // ── SAM Acquisition ──
   const handleRunAcquisition = useCallback(() => {
-    // Run acquisition for both sides
+    playDiceRoll();
     const natoResults = runSAMAcquisitionPhase(gameState, 'nato');
     const wpResults = runSAMAcquisitionPhase(gameState, 'wp');
     const allResults = [...natoResults, ...wpResults];
+    if (allResults.some((r) => r.result !== 'none')) playSAMAcquisition();
 
     setAcqResults(allResults);
     updateGameState((state) => applyAcquisitionResults(state, allResults));

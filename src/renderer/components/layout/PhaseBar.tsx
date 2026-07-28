@@ -3,6 +3,7 @@ import { useGameStore } from '../../store/gameStore';
 import { GamePhase } from '@engine/state/GameState';
 import { advancePhase } from '@engine/controller/PhaseStateMachine';
 import { pushUndoState } from '@engine/controller/UndoManager';
+import { playPhaseAdvance } from '../../audio';
 
 const PHASE_ORDER: { phase: GamePhase; label: string }[] = [
   { phase: 'randomEvent', label: 'Random Event' },
@@ -71,6 +72,7 @@ const PhaseBar: React.FC = () => {
   const { gameState, updateGameState } = useGameStore();
 
   const handleNextPhase = () => {
+    playPhaseAdvance();
     updateGameState((state) => {
       const withUndo = pushUndoState(state);
       return advancePhase(withUndo);
