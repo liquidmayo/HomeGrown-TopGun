@@ -7,9 +7,11 @@
  * actions for bot-side flights, SAMs, and AAA.
  */
 
-import { GameState, FlightState, Side, hexToId } from '../engine/state/GameState';
+import { GameState, FlightState, Side, hexToId, DamageLevel } from '../engine/state/GameState';
 import { hexDistance, getNeighbor, normalizeHeading, hexBearing } from '../engine/hex';
 import { getAircraftData, getSpeed } from '../data/aircraft/aircraftDatabase';
+import { canSAMFire, resolveSAMAttack } from '../engine/rules/sam';
+import { allocateDamage } from '../engine/rules/combat';
 import {
   determineBotAction, resolveBotMovement, buildBotContext, BotAction,
 } from './tables/flightActionsTable';
@@ -134,25 +136,39 @@ export function applyBotMovement(
     // Initialize movement
     let updated = initializeMovement(flight, fa.movement.throttle, fa.movement.speed);
 
-    // Set heading
-    updated = { ...updated, heading: fa.movement.heading };
+    // Determine target hex from the action
+    let targetHex = updated.hex;
+    if (fa.action.type === 'moveToward') targetHex = fa.action.targetHex;
+    else if (fa.action.type === 'moveAway') {
+      // Move away: pick neighbor furthest from threat
+      targetHex = { col: flight.side === 'nato' ? 0 : 79, row: updated.hex.row };
+    } else if (fa.action.type === 'rtb') {
+      targetHex = { col: flight.side === 'nato' ? 0 : 79, row: updated.hex.row };
+    } else if (fa.action.type === 'engage') {
+      const t = state.flights[fa.action.targetId];
+      if (t) targetHex = t.hex;
+    }
+    // Patrol/orbit: move in a small circle
+    if (fa.action.type === 'patrol' || fa.action.type === 'orbit') {
+      const pDir = (Math.floor(Math.random() * 6)) as 0|1|2|3|4|5;
+      targetHex = getNeighbor(updated.hex, pDir);
+    }
 
-    // Simple movement: move forward spending all MP
+    // Move toward target hex step by step
     for (let mp = 0; mp < updated.speed; mp++) {
-      // Move one hex in current heading direction
-      const headingToDir: Record<number, 0 | 1 | 2 | 3 | 4 | 5> = {
-        0: 0, 60: 5, 120: 4, 180: 3, 240: 2, 300: 1,
-      };
-
-      const dir = headingToDir[normalizeHeading(updated.heading)];
-      if (dir !== undefined) {
-        const nextHex = getNeighbor(updated.hex, dir);
-        // Basic bounds check
-        if (nextHex.col >= 0 && nextHex.col <= 79 && nextHex.row >= 0 && nextHex.row <= 50) {
-          updated = { ...updated, hex: nextHex };
+      let bestDir: 0|1|2|3|4|5 = 0;
+      let bestDist = Infinity;
+      for (let d = 0; d < 6; d++) {
+        const n = getNeighbor(updated.hex, d as 0|1|2|3|4|5);
+        const dist = hexDistance(n, targetHex);
+        if (dist < bestDist && n.col >= 0 && n.col <= 79 && n.row >= 0 && n.row <= 50) {
+          bestDist = dist;
+          bestDir = d as 0|1|2|3|4|5;
         }
       }
-      updated = { ...updated, mpRemaining: updated.mpRemaining - 1 };
+      const nextHex = getNeighbor(updated.hex, bestDir);
+      const dirToHeading: Record<number,number> = {0:0,1:300,2:240,3:180,4:120,5:60};
+      updated = { ...updated, hex: nextHex, heading: dirToHeading[bestDir] ?? 0, mpRemaining: updated.mpRemaining - 1 };
     }
 
     // Mark as moved
@@ -167,6 +183,70 @@ export function applyBotMovement(
   }
 
   return state;
+}
+
+/**
+ * Execute bot SAM attacks during/after movement.
+ * SAMs with acquisition fire at targets in range.
+ */
+export function executeBotSAMAttacks(
+  gameState: GameState,
+  botSide: Side
+): { state: GameState; log: string[] } {
+  const log: string[] = [];
+  let state = { ...gameState, flights: { ...gameState.flights }, groundUnits: { ...gameState.groundUnits } };
+
+  const botSAMs = Object.values(state.groundUnits).filter(
+    (u) => u.side === botSide && u.type === 'sam' && u.damage !== 'destroyed' && u.radarOn && !u.isSAMWarning
+  );
+
+  // Track attacks per flight this turn
+  const attacksPerFlight: Record<string, number> = {};
+
+  for (const sam of botSAMs) {
+    const action = determineSAMAction(sam, state);
+    if (action.type !== 'fireAtTarget') continue;
+
+    const target = state.flights[action.targetId];
+    if (!target) continue;
+
+    const prevAttacks = attacksPerFlight[action.targetId] ?? 0;
+    const check = canSAMFire(sam, target, state, prevAttacks);
+    if (!check.canFire) continue;
+
+    const result = resolveSAMAttack(sam, target, state, action.salvo);
+    log.push(`SAM ${sam.id} fires at ${action.targetId}: ${result.attackResult}${result.attackResult === 'possibleHit' ? ` → defense: ${result.defenseResult}` : ''}`);
+
+    // Deduct ammo
+    const updatedSAM = { ...state.groundUnits[sam.id], ammoRemaining: sam.ammoRemaining - result.ammoUsed };
+    state.groundUnits[sam.id] = updatedSAM;
+    attacksPerFlight[action.targetId] = prevAttacks + 1;
+
+    // Apply damage
+    if (result.damageResult && result.damageResult !== 'none') {
+      const dmgAlloc = allocateDamage(target, result.damageResult);
+      log.push(`  HIT! Aircraft #${dmgAlloc.aircraftIndex} → ${dmgAlloc.resultingDamage.toUpperCase()}`);
+
+      const updatedAircraft = target.aircraft.map((ac) => {
+        if (ac.index === dmgAlloc.aircraftIndex) {
+          return { ...ac, damage: dmgAlloc.resultingDamage };
+        }
+        return ac;
+      });
+
+      const shotDown = dmgAlloc.resultingDamage === 'shotdown';
+      state.flights[action.targetId] = {
+        ...target,
+        aircraft: updatedAircraft,
+        // Check if all aircraft shot down
+        ...(updatedAircraft.every((a) => a.damage === 'shotdown') ? { isOnGround: false } : {}),
+      };
+    } else if (result.defenseResult === 'samAvoidance') {
+      log.push(`  ${action.targetId} performs SAM avoidance maneuver`);
+    }
+  }
+
+  return { state, log };
 }
 
 /**

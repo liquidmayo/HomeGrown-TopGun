@@ -176,20 +176,45 @@ const ACTION_RULES: ActionRule[] = [
     }),
   },
 
-  // Priority 7: Move toward detected enemy within 20 hexes (CAP)
+  // Priority 7: Move toward detected enemy within 30 hexes (CAP)
   {
     id: 'pursue_enemy',
     priority: 7,
     condition: (f, gs, ctx) => {
-      if (f.task !== 'cap') return false;
+      if (f.task !== 'cap' && f.task !== 'closeEscort') return false;
       if (!ctx.hasWeapons) return false;
-      return ctx.nearestEnemyDistance <= 20 && ctx.nearestEnemyFlight !== null;
+      return ctx.nearestEnemyDistance <= 30 && ctx.nearestEnemyFlight !== null;
     },
     action: (f, gs, ctx) => ({
       type: 'moveToward',
       targetHex: ctx.nearestEnemyFlight!.hex,
       reason: `Pursuing ${ctx.nearestEnemyFlight!.id} (${Math.round(ctx.nearestEnemyDistance)} hexes)`,
     }),
+  },
+
+  // Priority 7.5: Advance toward the front (CAP with no detected targets)
+  {
+    id: 'advance_to_front',
+    priority: 7.5,
+    condition: (f, gs) => {
+      if (f.task !== 'cap') return false;
+      // If there's a front and we're far from it, advance
+      if (gs.frontHexes.length === 0) return false;
+      const frontCol = gs.frontHexes.reduce((sum, h) => sum + h.col, 0) / gs.frontHexes.length;
+      const myCol = f.hex.col;
+      // WP advances west (lower col), NATO advances east (higher col)
+      if (f.side === 'wp') return myCol > frontCol + 5;
+      return myCol < frontCol - 5;
+    },
+    action: (f, gs) => {
+      const frontCol = gs.frontHexes.reduce((sum, h) => sum + h.col, 0) / gs.frontHexes.length;
+      const targetCol = f.side === 'wp' ? Math.max(0, frontCol - 3) : Math.min(79, frontCol + 3);
+      return {
+        type: 'moveToward' as const,
+        targetHex: { col: targetCol, row: f.hex.row },
+        reason: `Advancing toward front (col ${Math.round(frontCol)})`,
+      };
+    },
   },
 
   // Priority 8: Patrol near orbit point (CAP with no targets)
