@@ -11,7 +11,8 @@ import { GameState, FlightState, Side, hexToId, DamageLevel } from '../engine/st
 import { hexDistance, getNeighbor, normalizeHeading, hexBearing } from '../engine/hex';
 import { getAircraftData, getSpeed } from '../data/aircraft/aircraftDatabase';
 import { canSAMFire, resolveSAMAttack } from '../engine/rules/sam';
-import { allocateDamage } from '../engine/rules/combat';
+import { allocateDamage, resolveStandardCombat, checkStandardEngagementPrereqs } from '../engine/rules/combat';
+import { applyCombatResults } from '../engine/rules/applyCombat';
 import {
   determineBotAction, resolveBotMovement, buildBotContext, BotAction,
 } from './tables/flightActionsTable';
@@ -183,6 +184,103 @@ export function applyBotMovement(
   }
 
   return state;
+}
+
+/**
+ * Execute bot air-to-air combat.
+ * Bot flights that end movement adjacent to detected enemy flights attempt engagement.
+ */
+export function executeBotCombat(
+  gameState: GameState,
+  botSide: Side
+): { state: GameState; log: string[] } {
+  const log: string[] = [];
+  let state = gameState;
+  const enemySide: Side = botSide === 'nato' ? 'wp' : 'nato';
+
+  const botFlights = Object.values(state.flights).filter(
+    (f) => f.side === botSide && !f.isOnGround && f.hasMoved &&
+    !f.disordered && !f.aborted &&
+    f.aircraft.some((a) => a.damage !== 'shotdown' && a.airToAirWeapons.some((w) => !w.depleted))
+  );
+
+  for (const bf of botFlights) {
+    const current = state.flights[bf.id];
+    if (!current || current.disordered || current.aborted) continue;
+    if (current.aircraft.every((a) => a.damage === 'shotdown')) continue;
+    if (current.task !== 'cap' && current.task !== 'closeEscort' && current.task !== 'rescueSupport') continue;
+
+    const enemies = Object.values(state.flights).filter(
+      (f) => f.side === enemySide && f.detected && !f.isOnGround &&
+      f.aircraft.some((a) => a.damage !== 'shotdown') &&
+      hexDistance(current.hex, f.hex) <= 1
+    );
+
+    for (const enemy of enemies) {
+      const check = checkStandardEngagementPrereqs(current, enemy, state);
+      if (!check.canEngage) continue;
+
+      const combat = resolveStandardCombat(current, enemy, state.timeOfDay === 'day');
+      log.push(`${bf.id}(${bf.aircraftType}) engages ${enemy.id}(${enemy.aircraftType}): ${combat.engagement.outcome}`);
+
+      if (combat.engagement.combatOccurs) {
+        for (const s of combat.attackerShots) {
+          if (s.hit) log.push(`  ${bf.id} ${s.weaponId}: ${s.damageType!.toUpperCase()}`);
+        }
+        for (const s of combat.defenderShots) {
+          if (s.hit) log.push(`  ${enemy.id} ${s.weaponId}: ${s.damageType!.toUpperCase()}`);
+        }
+        state = applyCombatResults(state, bf.id, enemy.id, combat);
+
+        const afterBot = state.flights[bf.id];
+        const afterEnemy = state.flights[enemy.id];
+        const bAlive = afterBot.aircraft.filter((a) => a.damage !== 'shotdown').length;
+        const eAlive = afterEnemy.aircraft.filter((a) => a.damage !== 'shotdown').length;
+        log.push(`  Result: ${bf.id}=${bAlive}/${bf.aircraft.length}ac ${enemy.id}=${eAlive}/${enemy.aircraft.length}ac`);
+      }
+      break; // One combat per bot flight
+    }
+  }
+
+  return { state, log };
+}
+
+/**
+ * Launch QRA flights that are on the ground when enemy is detected.
+ * Returns updated state with QRA flights now airborne.
+ */
+export function launchQRAFlights(
+  gameState: GameState,
+  side: Side
+): { state: GameState; log: string[] } {
+  const log: string[] = [];
+  let state = { ...gameState, flights: { ...gameState.flights } };
+  const enemySide: Side = side === 'nato' ? 'wp' : 'nato';
+
+  // Check if any enemy is detected
+  const enemyDetected = Object.values(state.flights).some(
+    (f) => f.side === enemySide && f.detected && !f.isOnGround
+  );
+
+  if (!enemyDetected) return { state, log };
+
+  for (const [id, flight] of Object.entries(state.flights)) {
+    if (flight.side !== side) continue;
+    if (!flight.isOnGround) continue;
+    if (flight.groundState !== 'ready') continue;
+
+    // Launch QRA
+    state.flights[id] = {
+      ...flight,
+      isOnGround: false,
+      groundState: null,
+      altitude: 'low',
+      detected: false,
+    };
+    log.push(`QRA ${id} (${flight.aircraftType}) launched from ${hexToId(flight.hex)}`);
+  }
+
+  return { state, log };
 }
 
 /**

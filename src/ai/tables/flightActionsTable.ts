@@ -162,7 +162,7 @@ const ACTION_RULES: ActionRule[] = [
     }),
   },
 
-  // Priority 6: Continue flight path (bombing/recon flights)
+  // Priority 6: Continue flight path (bombing/recon flights with path)
   {
     id: 'follow_flight_path',
     priority: 6,
@@ -174,6 +174,30 @@ const ACTION_RULES: ActionRule[] = [
       type: 'continueFlightPath',
       reason: `Following flight path to waypoint ${f.currentWaypointIndex + 1}`,
     }),
+  },
+
+  // Priority 6.5: Bombing/SEAD/Recon without flight path — advance toward enemy
+  {
+    id: 'advance_strike',
+    priority: 6.5,
+    condition: (f) => {
+      return (f.task === 'bombing' || f.task === 'sead' || f.task === 'recon') &&
+        (!f.flightPath || f.flightPath.length === 0);
+    },
+    action: (f, gs) => {
+      // Advance toward enemy side of the front
+      const frontCol = gs.frontHexes.length > 0
+        ? gs.frontHexes.reduce((s, h) => s + h.col, 0) / gs.frontHexes.length
+        : (f.side === 'nato' ? 55 : 45);
+      const targetCol = f.side === 'nato'
+        ? Math.min(79, frontCol + 10)
+        : Math.max(0, frontCol - 10);
+      return {
+        type: 'moveToward' as const,
+        targetHex: { col: targetCol, row: f.hex.row },
+        reason: `Strike advancing toward enemy territory (col ${Math.round(targetCol)})`,
+      };
+    },
   },
 
   // Priority 7: Move toward detected enemy within 30 hexes (CAP)
