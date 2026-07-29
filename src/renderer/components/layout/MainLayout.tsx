@@ -7,6 +7,7 @@ import MovementPanel from '../panels/MovementPanel';
 import DetectionPanel from '../panels/DetectionPanel';
 import SAMPanel from '../panels/SAMPanel';
 import SetupPanel from '../panels/SetupPanel';
+import RandomEventPanel from '../panels/RandomEventPanel';
 import PhaseGuide from '../tutorial/PhaseGuide';
 import RuleReference from '../tutorial/RuleReference';
 import TutorialOverlay from '../tutorial/TutorialOverlay';
@@ -240,6 +241,9 @@ const MainLayout: React.FC = () => {
             {/* Phase-specific Panels */}
             {gameActive && gameState.phase === 'setup' && (
               <SetupPanel />
+            )}
+            {gameActive && gameState.phase === 'randomEvent' && (
+              <RandomEventPanel />
             )}
             {gameActive && (gameState.phase === 'detection' || gameState.phase === 'track') && (
               <DetectionPanel />
