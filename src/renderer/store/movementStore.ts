@@ -52,6 +52,9 @@ interface MovementStore {
   // Movement log for current flight
   movementLog: string[];
 
+  // Undo stack: snapshots of game state after each MP spent
+  movementUndoStack: string[];
+
   // Actions
   setStep: (step: MovementStep) => void;
   setInitiativeResult: (winner: Side, roll: number) => void;
@@ -59,6 +62,8 @@ interface MovementStore {
   setActiveFlight: (flightId: string | null) => void;
   setValidMoveHexes: (hexes: ValidMoveHex[]) => void;
   addMovementLog: (message: string) => void;
+  pushUndoSnapshot: (stateJson: string) => void;
+  popUndoSnapshot: () => string | null;
   flightMoved: () => void;
   reset: () => void;
 }
@@ -74,6 +79,7 @@ export const useMovementStore = create<MovementStore>((set) => ({
   activeFlightId: null,
   validMoveHexes: [],
   movementLog: [],
+  movementUndoStack: [],
 
   setStep: (step) => set({ step }),
 
@@ -95,6 +101,18 @@ export const useMovementStore = create<MovementStore>((set) => ({
 
   addMovementLog: (message) =>
     set((s) => ({ movementLog: [...s.movementLog, message] })),
+
+  pushUndoSnapshot: (stateJson) =>
+    set((s) => ({ movementUndoStack: [...s.movementUndoStack, stateJson] })),
+
+  popUndoSnapshot: () => {
+    const store = useMovementStore.getState();
+    const stack = [...store.movementUndoStack];
+    if (stack.length === 0) return null;
+    const snapshot = stack.pop()!;
+    useMovementStore.setState({ movementUndoStack: stack });
+    return snapshot;
+  },
 
   flightMoved: () =>
     set((s) => ({ flightsMovedThisChit: s.flightsMovedThisChit + 1 })),

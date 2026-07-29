@@ -264,8 +264,21 @@ const MovementPanel: React.FC = () => {
   }, [gameState, mvmt]);
 
   // ── Step: Moving — handle hex click ──
+  // Undo last movement step
+  const handleMovementUndo = useCallback(() => {
+    const snapshot = mvmt.popUndoSnapshot();
+    if (snapshot) {
+      const restored = JSON.parse(snapshot);
+      updateGameState(() => restored);
+      mvmt.addMovementLog('  ↩ Move undone');
+    }
+  }, [mvmt, updateGameState]);
+
   const handleMoveToHex = useCallback((direction: number) => {
     if (!mvmt.activeFlightId) return;
+
+    // Save snapshot before move for undo
+    mvmt.pushUndoSnapshot(JSON.stringify(gameState));
 
     updateGameState((state) => {
       const flight = state.flights[mvmt.activeFlightId!];
@@ -619,13 +632,22 @@ const MovementPanel: React.FC = () => {
             )}
           </div>
 
-          {/* End movement */}
-          <button
-            style={{ ...s.btn, ...s.btnPrimary, marginTop: 8 }}
-            onClick={handleEndFlightMovement}
-          >
-            {activeFlight.mpRemaining <= 0 ? 'Flight Done' : `End Movement (${activeFlight.mpRemaining} MP unused)`}
-          </button>
+          {/* Undo / End movement */}
+          <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+            <button
+              style={{ ...s.btn, flex: 1, opacity: mvmt.movementUndoStack.length > 0 ? 1 : 0.4 }}
+              onClick={handleMovementUndo}
+              disabled={mvmt.movementUndoStack.length === 0}
+            >
+              ↩ Undo Move
+            </button>
+            <button
+              style={{ ...s.btn, ...s.btnPrimary, flex: 2 }}
+              onClick={handleEndFlightMovement}
+            >
+              {activeFlight.mpRemaining <= 0 ? 'Flight Done' : `End Movement (${activeFlight.mpRemaining} MP unused)`}
+            </button>
+          </div>
         </>
       )}
 

@@ -271,6 +271,88 @@ const HexMapView: React.FC = () => {
       }
     }
 
+    // ── SAM range rings ──
+    if (gameActive) {
+      for (const unit of Object.values(gameState.groundUnits)) {
+        if (unit.type !== 'sam' || unit.damage === 'destroyed') continue;
+        if (!unit.located && !unit.isSAMWarning) continue;
+        const { x, y } = hexToPixel(unit.hex.col, unit.hex.row);
+        const color = unit.side === 'nato' ? '#4488cc' : '#cc4444';
+
+        // Acquisition range ring (dashed)
+        const samTypes: Record<string, number> = {
+          'HAWK_C': 15, 'HAWK_D': 18, 'Patriot': 25, 'Nike_Hercules': 20,
+          'Roland_2': 6, 'Rapier': 5, 'SA-2': 20, 'SA-4': 20, 'SA-6': 12,
+          'SA-8': 8, 'SA-11': 14, 'SA-12': 25, 'SA-13': 4,
+        };
+        const acqRange = samTypes[unit.subType] ?? 10;
+        const acqPx = acqRange * HEX_WIDTH * 0.75;
+
+        ctx.beginPath();
+        ctx.arc(x, y, acqPx, 0, Math.PI * 2);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1;
+        ctx.globalAlpha = unit.radarOn ? 0.35 : 0.1;
+        ctx.setLineDash([6, 4]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.globalAlpha = 1;
+
+        // Attack range ring (solid, if radar on)
+        if (unit.radarOn) {
+          const atkTypes: Record<string, number> = {
+            'HAWK_C': 12, 'HAWK_D': 14, 'Patriot': 20, 'Nike_Hercules': 18,
+            'Roland_2': 4, 'Rapier': 4, 'SA-2': 18, 'SA-4': 16, 'SA-6': 10,
+            'SA-8': 6, 'SA-11': 12, 'SA-12': 20, 'SA-13': 4,
+          };
+          const atkRange = atkTypes[unit.subType] ?? 8;
+          const atkPx = atkRange * HEX_WIDTH * 0.75;
+
+          ctx.beginPath();
+          ctx.arc(x, y, atkPx, 0, Math.PI * 2);
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 1.5;
+          ctx.globalAlpha = 0.4;
+          ctx.stroke();
+          ctx.globalAlpha = 1;
+        }
+      }
+    }
+
+    // ── Flight path lines ──
+    if (gameActive) {
+      for (const flight of Object.values(gameState.flights)) {
+        if (!flight.flightPath || flight.flightPath.length < 2) continue;
+        const color = flight.side === 'nato' ? '#4488ff' : '#ff4444';
+
+        ctx.beginPath();
+        const p0 = hexToPixel(flight.flightPath[0].hex.col, flight.flightPath[0].hex.row);
+        ctx.moveTo(p0.x, p0.y);
+        for (let i = 1; i < flight.flightPath.length; i++) {
+          const p = hexToPixel(flight.flightPath[i].hex.col, flight.flightPath[i].hex.row);
+          ctx.lineTo(p.x, p.y);
+        }
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.globalAlpha = 0.5;
+        ctx.setLineDash([4, 3]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.globalAlpha = 1;
+
+        // Waypoint markers
+        for (const wp of flight.flightPath) {
+          const p = hexToPixel(wp.hex.col, wp.hex.row);
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+          ctx.fillStyle = color;
+          ctx.globalAlpha = 0.6;
+          ctx.fill();
+          ctx.globalAlpha = 1;
+        }
+      }
+    }
+
     // ── Valid move highlights ──
     if (validMoveHexes.length > 0) {
       for (const vh of validMoveHexes) {

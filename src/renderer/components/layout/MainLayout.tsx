@@ -8,6 +8,7 @@ import DetectionPanel from '../panels/DetectionPanel';
 import SAMPanel from '../panels/SAMPanel';
 import SetupPanel from '../panels/SetupPanel';
 import RandomEventPanel from '../panels/RandomEventPanel';
+import ScenarioCompletePanel from '../panels/ScenarioCompletePanel';
 import PhaseGuide from '../tutorial/PhaseGuide';
 import RuleReference from '../tutorial/RuleReference';
 import TutorialOverlay from '../tutorial/TutorialOverlay';
@@ -253,6 +254,9 @@ const MainLayout: React.FC = () => {
             )}
             {gameActive && (gameState.phase === 'samAcquisition' || gameState.phase === 'samLocation') && (
               <SAMPanel />
+            )}
+            {gameActive && gameState.phase === 'completed' && (
+              <ScenarioCompletePanel />
             )}
 
             {/* Event Log Panel */}
