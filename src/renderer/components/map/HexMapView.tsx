@@ -44,21 +44,23 @@ const HexMapView: React.FC = () => {
   const dragRef = useRef({ dragging: false, sx: 0, sy: 0, lx: 0, ly: 0 });
   const selectedHexRef = useRef<HexCoord | null>(null);
 
-  // Load the board game map image
+  // Load the board game map image — try multiple paths for dev and production
   useEffect(() => {
-    const img = new Image();
-    img.onload = () => {
-      mapImageRef.current = img;
-      mapImageLoadedRef.current = true;
+    const tryLoad = (paths: string[], idx: number = 0) => {
+      if (idx >= paths.length) return;
+      const img = new Image();
+      img.onload = () => {
+        mapImageRef.current = img;
+        mapImageLoadedRef.current = true;
+      };
+      img.onerror = () => tryLoad(paths, idx + 1);
+      img.src = paths[idx];
     };
-    // Try loading from the project directory
-    img.src = '../../../Red Storm [GMT Games]Map.png';
-    // Fallback: try absolute path for Electron
-    img.onerror = () => {
-      const img2 = new Image();
-      img2.onload = () => { mapImageRef.current = img2; mapImageLoadedRef.current = true; };
-      img2.src = 'file://' + (window as any).__dirname + '/../../../Red Storm [GMT Games]Map.png';
-    };
+    tryLoad([
+      '../../../Red Storm [GMT Games]Map.png',           // Dev: relative from renderer
+      './Red Storm [GMT Games]Map.png',                  // Production: same dir as index.html
+      'Red Storm [GMT Games]Map.png',                    // Direct
+    ]);
   }, []);
 
   // Convert screen coords to world coords

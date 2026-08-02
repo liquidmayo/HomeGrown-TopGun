@@ -20,13 +20,12 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "electron": "^43.2.0",
-    "pixi.js": "^8.19.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "electron": "^43.2.0",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.4",
@@ -44,10 +43,24 @@
       "output": "release"
     },
     "files": [
-      "dist/**/*"
+      "dist/**/*",
+      "Red Storm [GMT Games]Map.png"
+    ],
+    "extraResources": [
+      {
+        "from": "Red Storm [GMT Games]Map.png",
+        "to": "Red Storm [GMT Games]Map.png"
+      }
     ],
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "icon": null
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": null,
+      "uninstallerIcon": null
     }
   }
 }
